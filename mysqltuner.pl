@@ -1,10 +1,10 @@
 #!/usr/bin/env perl
-# mysqltuner.pl - Version 1.7.5
+# mysqltuner.pl - Version 1.7.25
 # High Performance MySQL Tuning Script
-# Copyright (C) 2006-2017 Major Hayden - major@mhtx.net
+# Copyright (C) 2006-2021 Major Hayden - major@mhtx.net
 #
-# For the latest updates, please visit http://mysqltuner.com/
-# Git repository available at http://github.com/major/MySQLTuner-perl
+# For the latest updates, please visit http://mysqltuner.pl/
+# Git repository available at https://github.com/major/MySQLTuner-perl
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -17,7 +17,7 @@
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
 # This project would not be possible without help from:
 #   Matthew Montgomery     Paul Kehrer          Dave Burgess
@@ -30,11 +30,11 @@
 #   Everett Barnes         Tom Krouper          Gary Barrueto
 #   Simon Greenaway        Adam Stein           Isart Montane
 #   Baptiste M.            Cole Turner          Major Hayden
-#   Joe Ashcraft           Jean-Marie Renouard  Christian Loos
-#   Julien Francoz
+#   Joe Ashcraft           JeSan-Marie Renouard  Christian Loos
+#   Julien Francoz         Daniel Black
 #
 # Inspired by Matthew Montgomery's tuning-primer.sh script:
-# http://forge.mysql.com/projects/view.php?id=44
+# http://www.day32.com/MySQL/
 #
 package main;
 
@@ -56,7 +56,7 @@ $Data::Dumper::Pair = " : ";
 #use Env;
 
 # Set up a few variables for use in the script
-my $tunerversion = "1.7.5";
+my $tunerversion = "1.7.25";
 my ( @adjvars, @generalrec );
 
 # Set defaults
@@ -67,6 +67,7 @@ my %opt = (
     "noinfo"         => 0,
     "debug"          => 0,
     "nocolor"        => ( !-t STDOUT ),
+    "color"          => 0,
     "forcemem"       => 0,
     "forceswap"      => 0,
     "host"           => 0,
@@ -84,10 +85,20 @@ my %opt = (
     "bannedports"    => '',
     "maxportallowed" => 0,
     "outputfile"     => 0,
+    "noprocess"      => 0,
     "dbstat"         => 0,
+    "nodbstat"       => 0,
+    "server-log"     => '',
+    "tbstat"         => 0,
+    "notbstat"       => 0,
+    "colstat"        => 0,
+    "nocolstat"      => 0,
     "idxstat"        => 0,
+    "noidxstat"      => 0,
     "sysstat"        => 0,
+    "nosysstat"      => 0,
     "pfstat"         => 0,
+    "nopfstat"       => 0,
     "skippassword"   => 0,
     "noask"          => 0,
     "template"       => 0,
@@ -111,16 +122,22 @@ GetOptions(
     'mysqlcmd=s',      'help',
     'buffers',         'skippassword',
     'passwordfile=s',  'outputfile=s',
-    'silent',          'dbstat',
+    'silent',          'noask',
     'json',            'prettyjson',
-    'idxstat',         'noask',
     'template=s',      'reportfile=s',
     'cvefile=s',       'bannedports=s',
     'updateversion',   'maxportallowed=s',
-    'verbose',         'sysstat',
-    'password=s',      'pfstat',
+    'verbose',         'password=s',
     'passenv=s',       'userenv=s',
-    'defaults-file=s', 'ssl-ca=s'
+    'defaults-file=s', 'ssl-ca=s',
+    'color',           'noprocess',
+    'dbstat',          'nodbstat',
+    'tbstat',          'notbstat',
+    'colstat',          'nocolstat',
+    'sysstat',         'nosysstat',
+    'pfstat',          'nopfstat',
+    'idxstat',         'noidxstat',
+    'server-log=s',
   )
   or pod2usage(
     -exitval  => 1,
@@ -128,7 +145,7 @@ GetOptions(
     -sections => [
         "NAME",
         "IMPORTANT USAGE GUIDELINES",
-        "CONNECTION AND AUTHENTIFICATION",
+        "CONNECTION AND AUTHENTICATION",
         "PERFORMANCE AND REPORTING OPTIONS",
         "OUTPUT OPTIONS"
     ]
@@ -141,7 +158,7 @@ if ( defined $opt{'help'} && $opt{'help'} == 1 ) {
         -sections => [
             "NAME",
             "IMPORTANT USAGE GUIDELINES",
-            "CONNECTION AND AUTHENTIFICATION",
+            "CONNECTION AND AUTHENTICATION",
             "PERFORMANCE AND REPORTING OPTIONS",
             "OUTPUT OPTIONS"
         ]
@@ -173,12 +190,23 @@ $basic_password_files = "/usr/share/mysqltuner/basic_passwords.txt"
 if ( $opt{verbose} ) {
     $opt{checkversion} = 1;    #Check for updates to MySQLTuner
     $opt{dbstat}       = 1;    #Print database information
+    $opt{tbstat}       = 1;    #Print database information
     $opt{idxstat}      = 1;    #Print index information
     $opt{sysstat}      = 1;    #Print index information
     $opt{buffers}      = 1;    #Print global and per-thread buffer values
     $opt{pfstat}       = 1;    #Print performance schema info.
     $opt{cvefile} = 'vulnerabilities.csv';    #CVE File for vulnerability checks
 }
+$opt{nocolor} = 1 if defined( $opt{outputfile} );
+$opt{tbstat}  = 0 if ( $opt{notbstat} == 1 );    # Don't Print table information
+$opt{colstat}  = 0 if ( $opt{nocolstat} == 1 );    # Don't Print column information
+$opt{dbstat} = 0 if ( $opt{nodbstat} == 1 );  # Don't Print database information
+$opt{noprocess} = 0
+  if ( $opt{noprocess} == 1 );                # Don't Print process information
+$opt{sysstat} = 0 if ( $opt{nosysstat} == 1 ); # Don't Print sysstat information
+$opt{pfstat} = 0
+  if ( $opt{nopfstat} == 1 );    # Don't Print performance schema information
+$opt{idxstat} = 0 if ( $opt{noidxstat} == 1 );   # Don't Print index information
 
 # for RPM distributions
 $opt{cvefile} = "/usr/share/mysqltuner/vulnerabilities.csv"
@@ -198,6 +226,9 @@ open( $fh, '>', $outputfile )
   or die("Fail opening $outputfile")
   if defined($outputfile);
 $opt{nocolor} = 1 if defined($outputfile);
+$opt{nocolor} = 1 unless ( -t STDOUT );
+
+$opt{nocolor} = 0 if ( $opt{color} == 1 );
 
 # Setting up the colors for the print styles
 my $me = `whoami`;
@@ -211,8 +242,14 @@ my $deb  = ( $opt{nocolor} == 0 ) ? "[\e[0;31mDG\e[0m]"  : "[DG]";
 my $cmd  = ( $opt{nocolor} == 0 ) ? "\e[1;32m[CMD]($me)" : "[CMD]($me)";
 my $end  = ( $opt{nocolor} == 0 ) ? "\e[0m"              : "";
 
+# Maximum lines of log output to read from end
+my $maxlines = 30000;
+
 # Checks for supported or EOL'ed MySQL versions
 my ( $mysqlvermajor, $mysqlverminor, $mysqlvermicro );
+
+# Database
+my @dblist;
 
 # Super structure containing all information
 my %result;
@@ -261,7 +298,7 @@ sub infoprinthcmd {
     infoprintcmd "$_[1]";
 }
 
-# Calculates the number of phyiscal cores considering HyperThreading
+# Calculates the number of physical cores considering HyperThreading
 sub cpu_cores {
     my $cntCPU =
 `awk -F: '/^core id/ && !P[\$2] { CORES++; P[\$2]=1 }; /^physical id/ && !N[\$2] { CPUs++; N[\$2]=1 };  END { print CPUs*CORES }' /proc/cpuinfo`;
@@ -378,7 +415,7 @@ sub pretty_uptime {
 }
 
 # Retrieves the memory installed on this machine
-my ( $physical_memory, $swap_memory, $duflags );
+my ( $physical_memory, $swap_memory, $duflags, $xargsflags );
 
 sub memerror {
     badprint
@@ -388,7 +425,8 @@ sub memerror {
 
 sub os_setup {
     my $os = `uname`;
-    $duflags = ( $os =~ /Linux/ ) ? '-b' : '';
+    $duflags    = ( $os =~ /Linux/ )        ? '-b' : '';
+    $xargsflags = ( $os =~ /Darwin|SunOS/ ) ? ''   : '-r';
     if ( $opt{'forcemem'} > 0 ) {
         $physical_memory = $opt{'forcemem'} * 1048576;
         infoprint "Assuming $opt{'forcemem'} MB of physical memory";
@@ -492,7 +530,7 @@ sub get_http_cli {
 
 # Checks for updates to MySQLTuner
 sub validate_tuner_version {
-    if ( $opt{'checkversion'} eq 0 and $opt{'updateversion'} eq 0 ) {
+    if ( $opt{'checkversion'} eq 0 ) {
         print "\n" unless ( $opt{'silent'} or $opt{'json'} );
         infoprint "Skipped version check for MySQLTuner script";
         return;
@@ -601,7 +639,7 @@ sub update_tuner_version {
     else {
         badprint "Couldn't update MySQLTuner script";
     }
-
+    infoprint "Stopping program: MySQLTuner has be updated.";
     exit 0;
 }
 
@@ -640,6 +678,9 @@ sub mysql_setup {
     }
     else {
         $mysqladmincmd = which( "mysqladmin", $ENV{'PATH'} );
+        if ( !-e $mysqladmincmd ) {
+            $mysqladmincmd = which( "mariadb-admin", $ENV{'PATH'} );
+        }
     }
     chomp($mysqladmincmd);
     if ( !-e $mysqladmincmd && $opt{mysqladmin} ) {
@@ -648,7 +689,8 @@ sub mysql_setup {
         exit 1;
     }
     elsif ( !-e $mysqladmincmd ) {
-        badprint "Couldn't find mysqladmin in your \$PATH. Is MySQL installed?";
+        badprint
+"Couldn't find mysqladmin/mariadb-admin in your \$PATH. Is MySQL installed?";
         exit 1;
     }
     if ( $opt{mysqlcmd} ) {
@@ -656,6 +698,9 @@ sub mysql_setup {
     }
     else {
         $mysqlcmd = which( "mysql", $ENV{'PATH'} );
+        if ( !-e $mysqlcmd ) {
+            $mysqlcmd = which( "mariadb", $ENV{'PATH'} );
+        }
     }
     chomp($mysqlcmd);
     if ( !-e $mysqlcmd && $opt{mysqlcmd} ) {
@@ -664,7 +709,8 @@ sub mysql_setup {
         exit 1;
     }
     elsif ( !-e $mysqlcmd ) {
-        badprint "Couldn't find mysql in your \$PATH. Is MySQL installed?";
+        badprint
+          "Couldn't find mysql/mariadb in your \$PATH. Is MySQL installed?";
         exit 1;
     }
     $mysqlcmd =~ s/\n$//g;
@@ -821,17 +867,17 @@ sub mysql_setup {
         and $opt{'defaults-file'} eq '' )
     {
 
-        # We have a debian maintenance account, use it
+        # We have a Debian maintenance account, use it
         $mysqllogin = "--defaults-file=/etc/mysql/debian.cnf";
         my $loginstatus = `$mysqladmincmd $mysqllogin ping 2>&1`;
         if ( $loginstatus =~ /mysqld is alive/ ) {
             goodprint
-              "Logged in using credentials from debian maintenance account.";
+              "Logged in using credentials from Debian maintenance account.";
             return 1;
         }
         else {
-            badprint "Attempted to use login credentials from debian maintena
-nce account, but they failed.";
+            badprint
+"Attempted to use login credentials from Debian maintenance account, but they failed.";
             exit 1;
         }
     }
@@ -850,8 +896,7 @@ nce account, but they failed.";
         }
     }
     else {
-
-        # It's not Plesk or debian, we should try a login
+        # It's not Plesk or Debian, we should try a login
         debugprint "$mysqladmincmd $remotestring ping 2>&1";
         my $loginstatus = `$mysqladmincmd $remotestring ping 2>&1`;
         if ( $loginstatus =~ /mysqld is alive/ ) {
@@ -930,6 +975,7 @@ nce account, but they failed.";
             exit 1;
         }
     }
+
 }
 
 # MySQL Request Array
@@ -949,6 +995,12 @@ sub select_array {
     debugprint "select_array: return code : $?";
     chomp(@result);
     return @result;
+}
+
+sub human_size {
+    my ( $size, $n ) = ( shift, 0 );
+    ++$n and $size /= 1024 until $size < 1024;
+    return sprintf "%.2f %s", $size, (qw[ bytes KB MB GB ])[$n];
 }
 
 # MySQL Request one
@@ -996,6 +1048,7 @@ sub select_str_g {
 
     my $req = shift;
     my $str = select_one_g $pattern, $req;
+    return () unless defined $str;
     my @val = split /:/, $str;
     shift @val;
     return trim(@val);
@@ -1045,7 +1098,7 @@ sub get_all_vars {
     $dummyselect = select_one "SELECT VERSION()";
     if ( not defined($dummyselect) or $dummyselect eq "" ) {
         badprint
-"You probably doesn't get enough privileges for running MySQLTuner ...";
+"You probably did not get enough privileges for running MySQLTuner ...";
         exit(256);
     }
     $dummyselect =~ s/(.*?)\-.*/$1/;
@@ -1061,10 +1114,16 @@ sub get_all_vars {
     push( @mysqlstatlist, select_array("SHOW GLOBAL STATUS") );
     arr2hash( \%mystat, \@mysqlstatlist );
     $result{'Status'} = \%mystat;
-
+    unless ( defined( $myvar{'innodb_support_xa'} ) ) {
+        $myvar{'innodb_support_xa'} = 'ON';
+    }
+    $mystat{'Uptime'} = 1
+      unless defined( $mystat{'Uptime'} )
+      and $mystat{'Uptime'} > 0;
     $myvar{'have_galera'} = "NO";
-    if ( defined( $myvar{'wsrep_provider_options'} )
-        && $myvar{'wsrep_provider_options'} ne "" )
+    if (   defined( $myvar{'wsrep_provider_options'} )
+        && $myvar{'wsrep_provider_options'} ne ""
+        && $myvar{'wsrep_on'} ne "OFF" )
     {
         $myvar{'have_galera'} = "YES";
         debugprint "Galera options: " . $myvar{'wsrep_provider_options'};
@@ -1076,9 +1135,10 @@ sub get_all_vars {
     }
 
     # Support GTID MODE FOR MARIADB
-    # Issue MariaDB GTID mode #272
-    $myvar{'gtid_mode'} = $myvar{'gtid_strict_mode'}
-      if ( defined( $myvar{'gtid_strict_mode'} ) );
+    # Issue MariaDB GTID mode #513
+    $myvar{'gtid_mode'} = 'ON'
+      if ( defined( $myvar{'gtid_current_pos'} )
+        and $myvar{'gtid_current_pos'} ne '' );
 
     $myvar{'have_threadpool'} = "NO";
     if ( defined( $myvar{'thread_pool_size'} )
@@ -1158,53 +1218,100 @@ sub get_log_file_real_path {
     if ( -f "$file" ) {
         return $file;
     }
+    elsif ( -f "$hostname.log" ) {
+        return "$hostname.log";
+    }
     elsif ( -f "$hostname.err" ) {
         return "$hostname.err";
     }
-    elsif ( $datadir ne "" ) {
+    elsif ( -f "$datadir$hostname.err" ) {
         return "$datadir$hostname.err";
+    }
+    elsif ( -f "$datadir$hostname.log" ) {
+        return "$datadir$hostname.log";
+    }
+    elsif ( -f "$datadir" . "mysql_error.log" ) {
+        return "$datadir" . "mysql_error.log";
+    }
+    elsif ( -f "/var/log/mysql.log" ) {
+        return "/var/log/mysql.log";
+    }
+    elsif ( -f "/var/log/mysqld.log" ) {
+        return "/var/log/mysqld.log";
+    }
+    elsif ( -f "/var/log/mysql/$hostname.err" ) {
+        return "/var/log/mysql/$hostname.err";
+    }
+    elsif ( -f "/var/log/mysql/$hostname.log" ) {
+        return "/var/log/mysql/$hostname.log";
+    }
+    elsif ( -f "/var/log/mysql/" . "mysql_error.log" ) {
+        return "/var/log/mysql/" . "mysql_error.log";
     }
     else {
         return $file;
     }
 }
 
-sub log_file_recommandations {
-    $myvar{'log_error'} =
-      get_log_file_real_path( $myvar{'log_error'}, $myvar{'hostname'},
+sub log_file_recommendations {
+    my $fh;
+    $myvar{'log_error'} = $opt{'server-log'}
+      || get_log_file_real_path( $myvar{'log_error'}, $myvar{'hostname'},
         $myvar{'datadir'} );
+
     subheaderprint "Log file Recommendations";
-    infoprint "Log file: "
-      . $myvar{'log_error'} . "("
-      . hr_bytes_rnd( ( stat $myvar{'log_error'} )[7] ) . ")";
-    if ( -f "$myvar{'log_error'}" ) {
+    if ( "$myvar{'log_error'}" eq "stderr" ) {
+        badprint "log_error is set to $myvar{'log_error'} MT can't read stderr";
+        return;
+    }
+    elsif ( $myvar{'log_error'} =~ /^(docker|podman|kubectl):(.*)/ ) {
+        open( $fh, '-|', "$1 logs --tail=$maxlines '$2'" )
+          // die "Can't start $1 $!";
+        goodprint "Log from cloud` $myvar{'log_error'} exists";
+    }
+    elsif ( $myvar{'log_error'} =~ /^systemd:(.*)/ ) {
+        open( $fh, '-|', "journalctl -n $maxlines -b  -u '$1'" )
+          // die "Can't start journalctl $!";
+        goodprint "Log journal` $myvar{'log_error'} exists";
+    }
+    elsif ( -f "$myvar{'log_error'}" ) {
         goodprint "Log file $myvar{'log_error'} exists";
+        my $size = ( stat $myvar{'log_error'} )[7];
+        infoprint "Log file: "
+          . $myvar{'log_error'} . "("
+          . hr_bytes_rnd($size) . ")";
+
+        if ( $size > 0 ) {
+            goodprint "Log file $myvar{'log_error'} is not empty";
+            if ( $size < 32 * 1024 * 1024 ) {
+                goodprint "Log file $myvar{'log_error'} is smaller than 32 Mb";
+            }
+            else {
+                badprint "Log file $myvar{'log_error'} is bigger than 32 Mb";
+                push @generalrec,
+                  $myvar{'log_error'}
+                  . " is > 32Mb, you should analyze why or implement a rotation log strategy such as logrotate!";
+            }
+        }
+        else {
+            infoprint
+"Log file $myvar{'log_error'} is empty. Assuming log-rotation. Use --server-log={file} for explicit file";
+            return;
+        }
+        if ( !open( $fh, '<', $myvar{'log_error'} ) ) {
+            badprint "Log file $myvar{'log_error'} isn't readable.";
+            return;
+        }
+        goodprint "Log file $myvar{'log_error'} is readable.";
+
+        if ( $maxlines * 80 < $size ) {
+            seek( $fh, -$maxlines * 80, 2 );
+            <$fh>;    # discard line fragment
+        }
     }
     else {
         badprint "Log file $myvar{'log_error'} doesn't exist";
-    }
-    if ( -r "$myvar{'log_error'}" ) {
-        goodprint "Log file $myvar{'log_error'} is readable.";
-    }
-    else {
-        badprint "Log file $myvar{'log_error'} isn't readable.";
         return;
-    }
-    if ( ( stat $myvar{'log_error'} )[7] > 0 ) {
-        goodprint "Log file $myvar{'log_error'} is not empty";
-    }
-    else {
-        badprint "Log file $myvar{'log_error'} is empty";
-    }
-
-    if ( ( stat $myvar{'log_error'} )[7] < 32 * 1024 * 1024 ) {
-        goodprint "Log file $myvar{'log_error'} is smaller than 32 Mb";
-    }
-    else {
-        badprint "Log file $myvar{'log_error'} is bigger than 32 Mb";
-        push @generalrec,
-          $myvar{'log_error'}
-          . " is > 32Mb, you should analyze why or implement a rotation log strategy such as logrotate!";
     }
 
     my $numLi     = 0;
@@ -1213,15 +1320,13 @@ sub log_file_recommandations {
     my @lastShutdowns;
     my @lastStarts;
 
-    open( my $fh, '<', $myvar{'log_error'} )
-      or die "Can't open $myvar{'log_error'} for read: $!";
-
     while ( my $logLi = <$fh> ) {
         chomp $logLi;
         $numLi++;
-        debugprint "$numLi: $logLi" if $logLi =~ /warning|error/i;
-        $nbErrLog++                 if $logLi =~ /error/i;
-        $nbWarnLog++                if $logLi =~ /warning/i;
+        debugprint "$numLi: $logLi"
+          if $logLi =~ /warning|error/i and $logLi !~ /Logging to/;
+        $nbErrLog++ if $logLi =~ /error/i and $logLi !~ /Logging to/;
+        $nbWarnLog++ if $logLi =~ /warning/i;
         push @lastShutdowns, $logLi
           if $logLi =~ /Shutdown complete/ and $logLi !~ /Innodb/i;
         push @lastStarts, $logLi if $logLi =~ /ready for connections/;
@@ -1350,6 +1455,7 @@ sub get_process_memory {
 }
 
 sub get_other_process_memory {
+    return 0 if ( $opt{tbstat} == 0 );
     my @procs = `ps eaxo pid,command`;
     @procs = map {
         my $v = $_;
@@ -1372,10 +1478,10 @@ sub get_other_process_memory {
 sub get_os_release {
     if ( -f "/etc/lsb-release" ) {
         my @info_release = get_file_contents "/etc/lsb-release";
-        my $os_relase    = $info_release[3];
-        $os_relase =~ s/.*="//;
-        $os_relase =~ s/"$//;
-        return $os_relase;
+        my $os_release   = $info_release[3];
+        $os_release =~ s/.*="//;
+        $os_release =~ s/"$//;
+        return $os_release;
     }
 
     if ( -f "/etc/system-release" ) {
@@ -1385,17 +1491,17 @@ sub get_os_release {
 
     if ( -f "/etc/os-release" ) {
         my @info_release = get_file_contents "/etc/os-release";
-        my $os_relase    = $info_release[0];
-        $os_relase =~ s/.*="//;
-        $os_relase =~ s/"$//;
-        return $os_relase;
+        my $os_release   = $info_release[0];
+        $os_release =~ s/.*="//;
+        $os_release =~ s/"$//;
+        return $os_release;
     }
 
     if ( -f "/etc/issue" ) {
         my @info_release = get_file_contents "/etc/issue";
-        my $os_relase    = $info_release[0];
-        $os_relase =~ s/\s+\\n.*//;
-        return $os_relase;
+        my $os_release   = $info_release[0];
+        $os_release =~ s/\s+\\n.*//;
+        return $os_release;
     }
     return "Unknown OS release";
 }
@@ -1410,7 +1516,7 @@ sub get_fs_info {
         $v;
     } @sinfo;
     foreach my $info (@sinfo) {
-        next if $info =~ m{(\d+)\t/(run|dev|sys|proc)($|/)};
+        next if $info =~ m{(\d+)\t/(run|dev|sys|proc|snap)($|/)};
         if ( $info =~ /(\d+)\t(.*)/ ) {
             if ( $1 > 85 ) {
                 badprint "mount point $2 is using $1 % total space";
@@ -1485,7 +1591,7 @@ sub infocmd_tab {
 
 sub infocmd_one {
     my $cmd    = "@_";
-    my @result = `$cmd`;
+    my @result = `$cmd 2>&1`;
     @result = remove_cr @result;
     return join ', ', @result;
 }
@@ -1576,6 +1682,7 @@ sub get_system_info {
     infoprint "Network Cards         : ";
     infocmd_tab "ifconfig| grep -A1 mtu";
     infoprint "Internal IP           : " . infocmd_one "hostname -I";
+    $result{'Network'}{'Internal Ip'} = `ifconfig| grep -A1 mtu`;
     my $httpcli = get_http_cli();
     infoprint "HTTP client found: $httpcli" if defined $httpcli;
 
@@ -1604,7 +1711,9 @@ sub get_system_info {
     infocmd_tab "top -n 1 -b | grep 'load average:'";
     $result{'OS'}{'Load Average'} = `top -n 1 -b | grep 'load average:'`;
 
-#infoprint "System Uptime Days/(HH:MM) : `uptime | awk '{print $3,$4}' | cut -f1 -d,`";
+    infoprint "System Uptime         : ";
+    infocmd_tab "uptime";
+    $result{'OS'}{'Uptime'} = `uptime`;
 }
 
 sub system_recommendations {
@@ -1683,32 +1792,59 @@ sub system_recommendations {
 
 sub security_recommendations {
     subheaderprint "Security Recommendations";
+
+    if ( mysql_version_eq(8) ) {
+        infoprint "Skipped due to unsupported feature for MySQL 8";
+        return;
+    }
+
+    #exit 0;
     if ( $opt{skippassword} eq 1 ) {
         infoprint "Skipped due to --skippassword option";
         return;
     }
 
     my $PASS_COLUMN_NAME = 'password';
-    if ( $myvar{'version'} =~ /5.7/ ) {
-        $PASS_COLUMN_NAME = 'authentication_string';
+
+    # New table schema available since mysql-5.7 and mariadb-10.2
+    # But need to be checked
+    if ( $myvar{'version'} =~ /5\.7|10\.[2-5]\..*MariaDB*/ ) {
+        my $password_column_exists =
+`$mysqlcmd $mysqllogin -Bse "SELECT 1 FROM information_schema.columns WHERE TABLE_SCHEMA = 'mysql' AND TABLE_NAME = 'user' AND COLUMN_NAME = 'password'" 2>>/dev/null`;
+        my $authstring_column_exists =
+`$mysqlcmd $mysqllogin -Bse "SELECT 1 FROM information_schema.columns WHERE TABLE_SCHEMA = 'mysql' AND TABLE_NAME = 'user' AND COLUMN_NAME = 'authentication_string'" 2>>/dev/null`;
+        if ( $password_column_exists && $authstring_column_exists ) {
+            $PASS_COLUMN_NAME =
+"IF(plugin='mysql_native_password', authentication_string, password)";
+        }
+        elsif ($authstring_column_exists) {
+            $PASS_COLUMN_NAME = 'authentication_string';
+        }
+        elsif ( !$password_column_exists ) {
+            infoprint "Skipped due to none of known auth columns exists";
+            return;
+        }
     }
     debugprint "Password column = $PASS_COLUMN_NAME";
 
     # Looking for Anonymous users
     my @mysqlstatlist = select_array
-"SELECT CONCAT(user, '\@', host) FROM mysql.user WHERE TRIM(USER) = '' OR USER IS NULL";
+"SELECT CONCAT(QUOTE(user), '\@', QUOTE(host)) FROM mysql.user WHERE TRIM(USER) = '' OR USER IS NULL";
     debugprint Dumper \@mysqlstatlist;
 
     #exit 0;
     if (@mysqlstatlist) {
-        foreach my $line ( sort @mysqlstatlist ) {
-            chomp($line);
-            badprint "User '" . $line . "' is an anonymous account.";
-        }
         push( @generalrec,
                 "Remove Anonymous User accounts - there are "
               . scalar(@mysqlstatlist)
               . " anonymous accounts." );
+        foreach my $line ( sort @mysqlstatlist ) {
+            chomp($line);
+            badprint "User "
+              . $line
+              . " is an anonymous account. Remove with DROP USER "
+              . $line . ";";
+        }
     }
     else {
         goodprint "There are no anonymous accounts for any database users";
@@ -1720,22 +1856,28 @@ sub security_recommendations {
     }
 
     # Looking for Empty Password
-    if ( mysql_version_ge( 5, 5 ) ) {
+    if ( mysql_version_ge( 10, 4 ) ) {
         @mysqlstatlist = select_array
-"SELECT CONCAT(user, '\@', host) FROM mysql.user WHERE ($PASS_COLUMN_NAME = '' OR $PASS_COLUMN_NAME IS NULL) AND plugin NOT IN ('unix_socket', 'win_socket', 'auth_pam_compat')";
+q{SELECT CONCAT(QUOTE(user), '@', QUOTE(host)) FROM mysql.global_priv WHERE
+    user != ''
+    AND JSON_CONTAINS(Priv, '"mysql_native_password"', '$.plugin') AND JSON_CONTAINS(Priv, '""', '$.authentication_string')
+    AND NOT JSON_CONTAINS(Priv, 'true', '$.account_locked')};
     }
     else {
         @mysqlstatlist = select_array
-"SELECT CONCAT(user, '\@', host) FROM mysql.user WHERE ($PASS_COLUMN_NAME = '' OR $PASS_COLUMN_NAME IS NULL)";
+"SELECT CONCAT(QUOTE(user), '\@', QUOTE(host)) FROM mysql.user WHERE ($PASS_COLUMN_NAME = '' OR $PASS_COLUMN_NAME IS NULL)
+    AND user != ''
+    /*!50501 AND plugin NOT IN ('auth_socket', 'unix_socket', 'win_socket', 'auth_pam_compat') */
+    /*!80000 AND account_locked = 'N' AND password_expired = 'N' */";
     }
     if (@mysqlstatlist) {
         foreach my $line ( sort @mysqlstatlist ) {
             chomp($line);
             badprint "User '" . $line . "' has no password set.";
+            push( @generalrec,
+"Set up a Secure Password for $line user: SET PASSWORD FOR $line = PASSWORD('secure_password');"
+            );
         }
-        push( @generalrec,
-"Set up a Password for user with the following SQL statement ( SET PASSWORD FOR 'user'\@'SpecificDNSorIp' = PASSWORD('secure_password'); )"
-        );
     }
     else {
         goodprint "All database users have passwords assigned";
@@ -1754,26 +1896,33 @@ sub security_recommendations {
 
     # Looking for User with user/ uppercase /capitalise user as password
     @mysqlstatlist = select_array
-"SELECT CONCAT(user, '\@', host) FROM mysql.user WHERE CAST($PASS_COLUMN_NAME as Binary) = PASSWORD(user) OR CAST($PASS_COLUMN_NAME as Binary) = PASSWORD(UPPER(user)) OR CAST($PASS_COLUMN_NAME as Binary) = PASSWORD(CONCAT(UPPER(LEFT(User, 1)), SUBSTRING(User, 2, LENGTH(User))))";
+"SELECT CONCAT(QUOTE(user), '\@', QUOTE(host)) FROM mysql.user WHERE user != '' AND (CAST($PASS_COLUMN_NAME as Binary) = PASSWORD(user) OR CAST($PASS_COLUMN_NAME as Binary) = PASSWORD(UPPER(user)) OR CAST($PASS_COLUMN_NAME as Binary) = PASSWORD(CONCAT(UPPER(LEFT(User, 1)), SUBSTRING(User, 2, LENGTH(User)))))";
     if (@mysqlstatlist) {
         foreach my $line ( sort @mysqlstatlist ) {
             chomp($line);
-            badprint "User '" . $line . "' has user name as password.";
+            badprint "User " . $line . " has user name as password.";
+            push( @generalrec,
+"Set up a Secure Password for $line user: SET PASSWORD FOR $line = PASSWORD('secure_password');"
+            );
         }
-        push( @generalrec,
-"Set up a Secure Password for user\@host ( SET PASSWORD FOR 'user'\@'SpecificDNSorIp' = PASSWORD('secure_password'); )"
-        );
     }
 
     @mysqlstatlist = select_array
-      "SELECT CONCAT(user, '\@', host) FROM mysql.user WHERE HOST='%'";
+      "SELECT CONCAT(QUOTE(user), '\@', host) FROM mysql.user WHERE HOST='%'";
     if (@mysqlstatlist) {
         foreach my $line ( sort @mysqlstatlist ) {
             chomp($line);
-            badprint "User '" . $line . "' hasn't specific host restriction.";
+            my $luser = ( split /@/, $line )[0];
+            badprint "User '" . $line
+              . "' does not specify hostname restrictions.";
+            push( @generalrec,
+"Restrict Host for $luser\@% to $luser\@LimitedIPRangeOrLocalhost"
+            );
+            push( @generalrec,
+                    "RENAME USER $luser\@'%' TO "
+                  . $luser
+                  . "\@LimitedIPRangeOrLocalhost;" );
         }
-        push( @generalrec,
-            "Restrict Host for user\@% to user\@SpecificDNSorIp" );
     }
 
     unless ( -f $basic_password_files ) {
@@ -1815,6 +1964,12 @@ sub security_recommendations {
                     chomp($line);
                     badprint "User '" . $line
                       . "' is using weak password: $pass in a lower, upper or capitalize derivative version.";
+
+                    push( @generalrec,
+"Set up a Secure Password for $line user: SET PASSWORD FOR '"
+                          . ( split /@/, $line )[0] . "'\@'"
+                          . ( split /@/, $line )[1]
+                          . "' = PASSWORD('secure_password');" );
                     $nbins++;
                 }
             }
@@ -1823,7 +1978,9 @@ sub security_recommendations {
         }
     }
     if ( $nbins > 0 ) {
-        push( @generalrec, $nbins . " user(s) used basic or weak password." );
+        push( @generalrec,
+            $nbins
+              . " user(s) used basic or weak password from basic dictionary." );
     }
 }
 
@@ -1838,15 +1995,31 @@ sub get_replication_status {
           . scalar( keys %myslaves )
           . " server(s).";
     }
+    infoprint "Binlog format: " . $myvar{'binlog_format'};
+    infoprint "XA support enabled: " . $myvar{'innodb_support_xa'};
 
+    infoprint "Semi synchronous replication Master: "
+      . (
+        defined( $myvar{'rpl_semi_sync_master_enabled'} )
+        ? $myvar{'rpl_semi_sync_master_enabled'}
+        : 'Not Activated'
+      );
+    infoprint "Semi synchronous replication Slave: "
+      . (
+        defined( $myvar{'rpl_semi_sync_slave_enabled'} )
+        ? $myvar{'rpl_semi_sync_slave_enabled'}
+        : 'Not Activated'
+      );
     if ( scalar( keys %myrepl ) == 0 and scalar( keys %myslaves ) == 0 ) {
-        infoprint "This is a standalone server.";
+        infoprint "This is a standalone server";
         return;
     }
     if ( scalar( keys %myrepl ) == 0 ) {
-        infoprint "No replication setup for this server.";
+        infoprint
+          "No replication setup for this server or replication not started.";
         return;
     }
+
     $result{'Replication'}{'status'} = \%myrepl;
     my ($io_running) = $myrepl{'Slave_IO_Running'};
     debugprint "IO RUNNING: $io_running ";
@@ -1862,7 +2035,7 @@ sub get_replication_status {
           "This replication slave is not running but seems to be configured.";
     }
     if (   defined($io_running)
-        && $io_running  =~ /yes/i
+        && $io_running =~ /yes/i
         && $sql_running =~ /yes/i )
     {
         if ( $myvar{'read_only'} eq 'OFF' ) {
@@ -1888,21 +2061,42 @@ sub validate_mysql_version {
       $myvar{'version'} =~ /^(\d+)(?:\.(\d+)|)(?:\.(\d+)|)/;
     $mysqlverminor ||= 0;
     $mysqlvermicro ||= 0;
-    if ( !mysql_version_ge( 5, 1 ) ) {
+
+    if (   mysql_version_eq(8)
+        or mysql_version_eq( 5,  6 )
+        or mysql_version_eq( 5,  7 )
+        or mysql_version_eq( 10, 2 )
+        or mysql_version_eq( 10, 3 )
+        or mysql_version_eq( 10, 4 )
+        or mysql_version_eq( 10, 5 ) )
+    {
+        goodprint "Currently running supported MySQL version "
+          . $myvar{'version'} . "";
+        return;
+    }
+    if (   mysql_version_ge(5)
+        or mysql_version_ge(4)
+        or mysql_version_eq( 10, 0 ) )
+    {
         badprint "Your MySQL version "
           . $myvar{'version'}
           . " is EOL software!  Upgrade soon!";
     }
-    elsif ( ( mysql_version_ge(6) and mysql_version_le(9) )
-        or mysql_version_ge(12) )
-    {
-        badprint "Currently running unsupported MySQL version "
-          . $myvar{'version'} . "";
-    }
-    else {
-        goodprint "Currently running supported MySQL version "
-          . $myvar{'version'} . "";
-    }
+}
+
+# Checks if MySQL version is equal to (major, minor, micro)
+sub mysql_version_eq {
+    my ( $maj, $min, $mic ) = @_;
+    my ( $mysqlvermajor, $mysqlverminor, $mysqlvermicro ) =
+      $myvar{'version'} =~ /^(\d+)(?:\.(\d+)|)(?:\.(\d+)|)/;
+
+    return int($mysqlvermajor) == int($maj)
+      if ( !defined($min) && !defined($mic) );
+    return int($mysqlvermajor) == int($maj) && int($mysqlverminor) == int($min)
+      if ( !defined($mic) );
+    return ( int($mysqlvermajor) == int($maj)
+          && int($mysqlverminor) == int($min)
+          && int($mysqlvermicro) == int($mic) );
 }
 
 # Checks if MySQL version is greater than equal to (major, minor, micro)
@@ -1910,6 +2104,9 @@ sub mysql_version_ge {
     my ( $maj, $min, $mic ) = @_;
     $min ||= 0;
     $mic ||= 0;
+    my ( $mysqlvermajor, $mysqlverminor, $mysqlvermicro ) =
+      $myvar{'version'} =~ /^(\d+)(?:\.(\d+)|)(?:\.(\d+)|)/;
+
     return
          int($mysqlvermajor) > int($maj)
       || ( int($mysqlvermajor) == int($maj) && int($mysqlverminor) > int($min) )
@@ -1923,6 +2120,8 @@ sub mysql_version_le {
     my ( $maj, $min, $mic ) = @_;
     $min ||= 0;
     $mic ||= 0;
+    my ( $mysqlvermajor, $mysqlverminor, $mysqlvermicro ) =
+      $myvar{'version'} =~ /^(\d+)(?:\.(\d+)|)(?:\.(\d+)|)/;
     return
          int($mysqlvermajor) < int($maj)
       || ( int($mysqlvermajor) == int($maj) && int($mysqlverminor) < int($min) )
@@ -1934,6 +2133,9 @@ sub mysql_version_le {
 # Checks if MySQL micro version is lower than equal to (major, minor, micro)
 sub mysql_micro_version_le {
     my ( $maj, $min, $mic ) = @_;
+    my ( $mysqlvermajor, $mysqlverminor, $mysqlvermicro ) =
+      $myvar{'version'} =~ /^(\d+)(?:\.(\d+)|)(?:\.(\d+)|)/;
+
     return $mysqlvermajor == $maj
       && ( $mysqlverminor == $min
         && $mysqlvermicro <= $mic );
@@ -1948,7 +2150,7 @@ sub check_architecture {
         $arch = 64;
         goodprint "Operating on 64-bit architecture";
     }
-    elsif ( `uname` !~ /SunOS/ && `uname -m` =~ /64/ ) {
+    elsif ( `uname` !~ /SunOS/ && `uname -m` =~ /(64|s390x)/ ) {
         $arch = 64;
         goodprint "Operating on 64-bit architecture";
     }
@@ -1994,12 +2196,11 @@ sub check_architecture {
 my ( %enginestats, %enginecount, $fragtables );
 
 sub check_storage_engines {
+    subheaderprint "Storage Engine Statistics";
     if ( $opt{skipsize} eq 1 ) {
-        subheaderprint "Storage Engine Statistics";
         infoprint "Skipped due to --skipsize option";
         return;
     }
-    subheaderprint "Storage Engine Statistics";
 
     my $engines;
     if ( mysql_version_ge( 5, 5 ) ) {
@@ -2072,11 +2273,11 @@ sub check_storage_engines {
             ( $engine, $size, $count, $dsize, $isize ) =
               $line =~ /([a-zA-Z_]+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/;
             debugprint "Engine Found: $engine";
-            next unless ( defined($engine) );
-            $size  = 0 unless defined($size);
-            $isize = 0 unless defined($isize);
-            $dsize = 0 unless defined($dsize);
-            $count = 0 unless defined($count);
+            next unless ( defined($engine) or trim($engine) eq '' );
+            $size  = 0 unless ( defined($size)  or trim($engine) eq '' );
+            $isize = 0 unless ( defined($isize) or trim($engine) eq '' );
+            $dsize = 0 unless ( defined($dsize) or trim($engine) eq '' );
+            $count = 0 unless ( defined($count) or trim($engine) eq '' );
             $enginestats{$engine}                      = $size;
             $enginecount{$engine}                      = $count;
             $result{'Engine'}{$engine}{'Table Number'} = $count;
@@ -2129,9 +2330,9 @@ sub check_storage_engines {
         foreach my $tbl (@tblist) {
             debugprint "Data dump " . Dumper(@$tbl);
             my ( $engine, $size, $datafree ) = @$tbl;
-            next if $engine eq 'NULL';
-            $size     = 0 if $size     eq 'NULL';
-            $datafree = 0 if $datafree eq 'NULL';
+            next if $engine eq 'NULL' or not defined($engine);
+            $size     = 0 if $size eq 'NULL'     or not defined($size);
+            $datafree = 0 if $datafree eq 'NULL' or not defined($datafree);
             if ( defined $enginestats{$engine} ) {
                 $enginestats{$engine} += $size;
                 $enginecount{$engine} += 1;
@@ -2147,7 +2348,7 @@ sub check_storage_engines {
     }
     while ( my ( $engine, $size ) = each(%enginestats) ) {
         infoprint "Data in $engine tables: "
-          . hr_bytes_rnd($size)
+          . hr_bytes($size)
           . " (Tables: "
           . $enginecount{$engine} . ")" . "";
     }
@@ -2266,6 +2467,7 @@ sub calculations {
           $myvar{'read_rnd_buffer_size'} +
           $myvar{'sort_buffer_size'} +
           $myvar{'thread_stack'} +
+          $myvar{'max_allowed_packet'} +
           $myvar{'join_buffer_size'};
     }
     else {
@@ -2309,22 +2511,24 @@ sub calculations {
 
 # Global memory
 # Max used memory is memory used by MySQL based on Max_used_connections
-# This is the max memory used theorically calculated with the max concurrent connection number reached by mysql
+# This is the max memory used theoretically calculated with the max concurrent connection number reached by mysql
     $mycalc{'max_used_memory'} =
       $mycalc{'server_buffers'} +
       $mycalc{"max_total_per_thread_buffers"} +
-      get_pf_memory() +
-      get_gcache_memory();
+      get_pf_memory();
+
+    #   + get_gcache_memory();
     $mycalc{'pct_max_used_memory'} =
       percentage( $mycalc{'max_used_memory'}, $physical_memory );
 
 # Total possible memory is memory needed by MySQL based on max_connections
-# This is the max memory MySQL can theorically used if all connections allowed has opened by mysql
+# This is the max memory MySQL can theoretically used if all connections allowed has opened by mysql
     $mycalc{'max_peak_memory'} =
       $mycalc{'server_buffers'} +
       $mycalc{'total_per_thread_buffers'} +
-      get_pf_memory() +
-      get_gcache_memory();
+      get_pf_memory();
+
+    # +  get_gcache_memory();
     $mycalc{'pct_max_physical_memory'} =
       percentage( $mycalc{'max_peak_memory'}, $physical_memory );
 
@@ -2369,7 +2573,7 @@ sub calculations {
                           $myvar{'key_cache_block_size'}
                     ) / $myvar{'key_buffer_size'}
                 )
-              ) * 100
+            ) * 100
         );
     }
     else {
@@ -2422,9 +2626,12 @@ sub calculations {
         my $size = 0;
         $size += (split)[0]
           for
-`find $myvar{'datadir'} -name "*.MYI" 2>&1 | xargs du -L $duflags 2>&1`;
+`find "$myvar{'datadir'}" -name "*.MYI" -print0 2>&1 | xargs $xargsflags -0 du -L $duflags 2>&1`;
         $mycalc{'total_myisam_indexes'} = $size;
-        $mycalc{'total_aria_indexes'}   = 0;
+        $size = 0 + (split)[0]
+          for
+`find "$myvar{'datadir'}" -name "*.MAI" -print0 2>&1 | xargs $xargsflags -0 du -L $duflags 2>&1`;
+        $mycalc{'total_aria_indexes'} = $size;
     }
     elsif ( mysql_version_ge(5) ) {
         $mycalc{'total_myisam_indexes'} = select_one
@@ -2432,38 +2639,31 @@ sub calculations {
         $mycalc{'total_aria_indexes'} = select_one
 "SELECT IFNULL(SUM(INDEX_LENGTH),0) FROM information_schema.TABLES WHERE TABLE_SCHEMA NOT IN ('information_schema') AND ENGINE = 'Aria';";
     }
-    if ( defined $mycalc{'total_myisam_indexes'}
-        and $mycalc{'total_myisam_indexes'} == 0 )
-    {
-        $mycalc{'total_myisam_indexes'} = "fail";
-    }
-    elsif ( defined $mycalc{'total_myisam_indexes'} ) {
+    if ( defined $mycalc{'total_myisam_indexes'} ) {
         chomp( $mycalc{'total_myisam_indexes'} );
     }
-    if ( defined $mycalc{'total_aria_indexes'}
-        and $mycalc{'total_aria_indexes'} == 0 )
-    {
-        $mycalc{'total_aria_indexes'} = 1;
-    }
-    elsif ( defined $mycalc{'total_aria_indexes'} ) {
+    if ( defined $mycalc{'total_aria_indexes'} ) {
         chomp( $mycalc{'total_aria_indexes'} );
     }
 
     # Query cache
-    if ( mysql_version_ge(4) ) {
+    if ( mysql_version_ge(8) and mysql_version_le(10) ) {
+        $mycalc{'query_cache_efficiency'} = 0;
+    }
+    elsif ( mysql_version_ge(4) ) {
         $mycalc{'query_cache_efficiency'} = sprintf(
             "%.1f",
             (
                 $mystat{'Qcache_hits'} /
                   ( $mystat{'Com_select'} + $mystat{'Qcache_hits'} )
-              ) * 100
+            ) * 100
         );
         if ( $myvar{'query_cache_size'} ) {
             $mycalc{'pct_query_cache_used'} = sprintf(
                 "%.1f",
                 100 - (
                     $mystat{'Qcache_free_memory'} / $myvar{'query_cache_size'}
-                  ) * 100
+                ) * 100
             );
         }
         if ( $mystat{'Qcache_lowmem_prunes'} == 0 ) {
@@ -2573,8 +2773,12 @@ sub calculations {
               $myvar{'innodb_log_files_in_group'} * 100 /
               $myvar{'innodb_buffer_pool_size'} );
     }
+    if ( !defined $myvar{'innodb_buffer_pool_size'} ) {
+        $mycalc{'innodb_log_size_pct'}    = 0;
+        $myvar{'innodb_buffer_pool_size'} = 0;
+    }
 
-    # InnoDB Buffer pool read cache effiency
+    # InnoDB Buffer pool read cache efficiency
     (
         $mystat{'Innodb_buffer_pool_read_requests'},
         $mystat{'Innodb_buffer_pool_reads'}
@@ -2594,7 +2798,7 @@ sub calculations {
     debugprint "Innodb_buffer_pool_read_requests: "
       . $mystat{'Innodb_buffer_pool_read_requests'} . "";
 
-    # InnoDB log write cache effiency
+    # InnoDB log write cache efficiency
     ( $mystat{'Innodb_log_write_requests'}, $mystat{'Innodb_log_writes'} ) =
       ( 1, 1 )
       unless defined $mystat{'Innodb_log_writes'};
@@ -2631,7 +2835,7 @@ sub mysql_stats {
         $qps = sprintf( "%.3f", $mystat{'Questions'} / $mystat{'Uptime'} );
     }
     push( @generalrec,
-        "MySQL started within last 24 hours - recommendations may be inaccurate"
+"MySQL was started within the last 24 hours - recommendations may be inaccurate"
     ) if ( $mystat{'Uptime'} < 86400 );
     infoprint "Up for: "
       . pretty_uptime( $mystat{'Uptime'} ) . " ("
@@ -2662,17 +2866,15 @@ sub mysql_stats {
     infoprint "Max MySQL memory    : " . hr_bytes( $mycalc{'max_peak_memory'} );
     infoprint "Other process memory: " . hr_bytes( get_other_process_memory() );
 
-    #print hr_bytes( $mycalc{'server_buffers'} );
-
     infoprint "Total buffers: "
       . hr_bytes( $mycalc{'server_buffers'} )
       . " global + "
       . hr_bytes( $mycalc{'per_thread_buffers'} )
       . " per thread ($myvar{'max_connections'} max threads)";
     infoprint "P_S Max memory usage: " . hr_bytes_rnd( get_pf_memory() );
-    $result{'P_S'}{'memory'} = get_other_process_memory();
+    $result{'P_S'}{'memory'} = get_pf_memory();
     $result{'P_S'}{'pretty_memory'} =
-      hr_bytes_rnd( get_other_process_memory() );
+      hr_bytes_rnd( get_pf_memory() );
     infoprint "Galera GCache Max memory usage: "
       . hr_bytes_rnd( get_gcache_memory() );
     $result{'Galera'}{'GCache'}{'memory'} = get_gcache_memory();
@@ -2688,7 +2890,7 @@ sub mysql_stats {
 
         if ( defined $myvar{'query_cache_type'} ) {
             infoprint "Query Cache Buffers";
-            infoprint " +-- Query Cache: " 
+            infoprint " +-- Query Cache: "
               . $myvar{'query_cache_type'} . " - "
               . (
                 $myvar{'query_cache_type'} eq 0 |
@@ -2844,8 +3046,13 @@ sub mysql_stats {
         push( @generalrec,
             "Upgrade MySQL to version 4+ to utilize query caching" );
     }
-    elsif ( $myvar{'query_cache_size'} < 1
-        and $myvar{'query_cache_type'} eq "OFF" )
+    elsif ( mysql_version_eq(8) ) {
+        infoprint "Query cache have been removed in MySQL 8";
+
+        #return;
+    }
+    elsif ($myvar{'query_cache_size'} < 1
+        or $myvar{'query_cache_type'} eq "OFF" )
     {
         goodprint
 "Query cache is disabled by default due to mutex contention on multiprocessor machines.";
@@ -2940,9 +3147,13 @@ sub mysql_stats {
         push( @adjvars,
                 "join_buffer_size (> "
               . hr_bytes( $myvar{'join_buffer_size'} )
-              . ", or always use indexes with joins)" );
-        push( @generalrec,
-            "Adjust your join queries to always utilize indexes" );
+              . ", or always use indexes with JOINs)" );
+        push(
+            @generalrec,
+"We will suggest raising the 'join_buffer_size' until JOINs not using indexes are found.
+             See https://dev.mysql.com/doc/internals/en/join-buffer-size.html
+             (specially the conclusions at the bottom of the page)."
+        );
     }
     else {
         goodprint "No joins without indexes";
@@ -3005,16 +3216,20 @@ sub mysql_stats {
     }
 
     # Thread cache
-    if ( $myvar{'thread_cache_size'} eq 0 ) {
-        badprint "Thread cache is disabled";
-        push( @generalrec, "Set thread_cache_size to 4 as a starting value" );
-        push( @adjvars,    "thread_cache_size (start at 4)" );
+    if ( defined( $myvar{'thread_handling'} )
+        and $myvar{'thread_handling'} eq 'pool-of-threads' )
+    {
+ # https://www.percona.com/doc/percona-server/LATEST/performance/threadpool.html
+ # When thread pool is enabled, the value of the thread_cache_size variable
+ # is ignored. The Threads_cached status variable contains 0 in this case.
+        infoprint "Thread cache not used with thread_handling=pool-of-threads";
     }
     else {
-        if ( defined( $myvar{'thread_handling'} )
-            and $myvar{'thread_handling'} eq 'pools-of-threads' )
-        {
-            infoprint "Thread cache hit rate: not used with pool-of-threads";
+        if ( $myvar{'thread_cache_size'} eq 0 ) {
+            badprint "Thread cache is disabled";
+            push( @generalrec,
+                "Set thread_cache_size to 4 as a starting value" );
+            push( @adjvars, "thread_cache_size (start at 4)" );
         }
         else {
             if ( $mycalc{'thread_cache_hit_rate'} <= 50 ) {
@@ -3063,7 +3278,20 @@ sub mysql_stats {
             push( @generalrec,
                     "Read this before increasing "
                   . $table_cache_var
-                  . " over 64: http://bit.ly/1mi7c4C" );
+                  . " over 64: https://bit.ly/2Fulv7r" );
+            push( @generalrec,
+                    "Read this before increasing for MariaDB"
+                  . " https://mariadb.com/kb/en/library/optimizing-table_open_cache/"
+            );
+            push( @generalrec,
+"This is MyISAM only table_cache scalability problem, InnoDB not affected."
+            );
+            push( @generalrec,
+                "See more details here: https://bugs.mysql.com/bug.php?id=49177"
+            );
+            push( @generalrec,
+"This bug already fixed in MySQL 5.7.9 and newer MySQL versions."
+            );
             push( @generalrec,
                     "Beware that open_files_limit ("
                   . $myvar{'open_files_limit'}
@@ -3080,6 +3308,35 @@ sub mysql_stats {
               . hr_num( $mystat{'Opened_tables'} )
               . " opened)";
         }
+    }
+
+    # Table definition cache
+    my $nbtables = select_one('SELECT COUNT(*) FROM information_schema.tables');
+    $mycalc{'total_tables'} = $nbtables;
+    if ( defined $myvar{'table_definition_cache'} ) {
+        if ( $myvar{'table_definition_cache'} == -1 ) {
+            infoprint( "table_definition_cache("
+                  . $myvar{'table_definition_cache'}
+                  . ") is in autosizing mode" );
+        }
+        elsif ( $myvar{'table_definition_cache'} < $nbtables ) {
+            badprint "table_definition_cache("
+              . $myvar{'table_definition_cache'}
+              . ") is lower than number of tables($nbtables) ";
+            push( @adjvars,
+                    "table_definition_cache("
+                  . $myvar{'table_definition_cache'} . ") > "
+                  . $nbtables
+                  . " or -1 (autosizing if supported)" );
+        }
+        else {
+            goodprint "table_definition_cache("
+              . $myvar{'table_definition_cache'}
+              . ") is upper than number of tables($nbtables)";
+        }
+    }
+    else {
+        infoprint "No table_definition_cache variable found.";
     }
 
     # Open files
@@ -3166,6 +3423,10 @@ sub mysql_stats {
 # Recommendations for MyISAM
 sub mysql_myisam {
     subheaderprint "MyISAM Metrics";
+    if ( mysql_version_ge(8) and mysql_version_le(10) ) {
+        infoprint "MyISAM Metrics are disabled on last MySQL versions.";
+        return;
+    }
 
     # Key buffer usage
     if ( defined( $mycalc{'pct_key_buffer_used'} ) ) {
@@ -3202,18 +3463,9 @@ sub mysql_myisam {
     }
 
     # Key buffer
-    if ( !defined( $mycalc{'total_myisam_indexes'} ) and $doremote == 1 ) {
+    if ( !defined( $mycalc{'total_myisam_indexes'} ) ) {
         push( @generalrec,
-            "Unable to calculate MyISAM indexes on remote MySQL server < 5.0.0"
-        );
-    }
-    elsif ( $mycalc{'total_myisam_indexes'} =~ /^fail$/ ) {
-        badprint
-          "Cannot calculate MyISAM index size - re-run script as root user";
-    }
-    elsif ( $mycalc{'total_myisam_indexes'} == "0" ) {
-        badprint
-          "None of your MyISAM tables are indexed - add indexes immediately";
+            "Unable to calculate MyISAM index size on MySQL server < 5.0.0" );
     }
     else {
         if (   $myvar{'key_buffer_size'} < $mycalc{'total_myisam_indexes'}
@@ -3302,7 +3554,18 @@ sub mariadb_threadpool {
     infoprint "ThreadPool stat is enabled.";
     infoprint "Thread Pool Size: " . $myvar{'thread_pool_size'} . " thread(s).";
 
-    if ( $myvar{'version'} =~ /mariadb|percona/i ) {
+    if ( $myvar{'version'} =~ /percona/i ) {
+        my $np=cpu_cores;
+        if ($myvar{'thread_pool_size'} >= $np and $myvar{'thread_pool_size'}< ($np *1.5)) {
+            goodprint "thread_pool_size for Percona betwwen 1 and 1.5 times nimber of CPUs (".$np. " and ".($np *1.5).")";
+        } else {
+            badprint "thread_pool_size for Percona betwwen 1 and 1.5 times nimber of CPUs (".$np. " and ".($np *1.5).")";
+            push( @adjvars, "thread_pool_size between ".$np . " and ".($np *1.5)." for InnoDB usage" );
+        }    
+        return;
+    }
+       
+    if ( $myvar{'version'} =~ /mariadb/i ) {
         infoprint "Using default value is good enough for your version ("
           . $myvar{'version'} . ")";
         return;
@@ -3370,14 +3633,15 @@ sub mysqsl_pfs {
         infoprint "Performance schema is disabled.";
         if ( mysql_version_ge( 5, 6 ) ) {
             push( @generalrec,
-                "Performance should be activated for better diagnostics" );
+                "Performance schema should be activated for better diagnostics"
+            );
             push( @adjvars, "performance_schema = ON enable PFS" );
         }
     }
     else {
         if ( mysql_version_le( 5, 5 ) ) {
             push( @generalrec,
-"Performance shouldn't be activated for MySQL and MariaDB 5.5 and lower version"
+"Performance schema shouldn't be activated for MySQL and MariaDB 5.5 and lower version"
             );
             push( @adjvars, "performance_schema = OFF disable PFS" );
         }
@@ -3385,11 +3649,22 @@ sub mysqsl_pfs {
     debugprint "Performance schema is " . $myvar{'performance_schema'};
     infoprint "Memory used by P_S: " . hr_bytes( get_pf_memory() );
 
+    if ( mysql_version_eq( 10, 0 ) ) {
+        push( @generalrec,
+"Performance schema shouldn't be activated for MariaDB 10.0 for performance issue"
+        );
+        push( @adjvars, "performance_schema = OFF disable PFS" );
+        return;
+    }
     unless ( grep /^sys$/, select_array("SHOW DATABASES") ) {
         infoprint "Sys schema isn't installed.";
         push( @generalrec,
-"Consider installing Sys schema from https://github.com/mysql/mysql-sys"
-        ) unless ( mysql_version_le( 5, 5 ) );
+"Consider installing Sys schema from https://github.com/mysql/mysql-sys for MySQL"
+        ) unless ( mysql_version_le( 5, 6 ) );
+        push( @generalrec,
+"Consider installing Sys schema from https://github.com/FromDual/mariadb-sys for MariaDB"
+        ) unless ( mysql_version_eq( 10, 0 ) or mysql_version_eq( 5, 5 ) );
+
         return;
     }
     else {
@@ -3412,7 +3687,7 @@ sub mysqsl_pfs {
         infoprint " +-- $nbL: $lQuery conn(s)";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top user per statement
@@ -3427,7 +3702,7 @@ sub mysqsl_pfs {
         infoprint " +-- $nbL: $lQuery stmt(s)";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top user per statement latency
@@ -3435,14 +3710,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select user, statement_avg_latency from sys.user_summary order by statement_avg_latency desc LIMIT 5'
+'select user, statement_avg_latency from sys.x\\$user_summary order by statement_avg_latency desc LIMIT 5'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top user per lock latency
@@ -3450,14 +3725,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select user, lock_latency from sys.user_summary_by_statement_latency order by lock_latency desc LIMIT 5'
+'select user, lock_latency from sys.x\\$user_summary_by_statement_latency order by lock_latency desc LIMIT 5'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top user per full scans
@@ -3465,14 +3740,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select user, full_scans from sys.user_summary_by_statement_latency order by full_scans desc LIMIT 5'
+'select user, full_scans from sys.x\\$user_summary_by_statement_latency order by full_scans desc LIMIT 5'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top user per row_sent
@@ -3480,14 +3755,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select user, rows_sent from sys.user_summary_by_statement_latency order by rows_sent desc LIMIT 5'
+'select user, rows_sent from sys.x\\$user_summary_by_statement_latency order by rows_sent desc LIMIT 5'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top user per row modified
@@ -3495,14 +3770,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select user, rows_affected from sys.user_summary_by_statement_latency order by rows_affected desc LIMIT 5'
+'select user, rows_affected from sys.x\\$user_summary_by_statement_latency order by rows_affected desc LIMIT 5'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top user per io
@@ -3510,14 +3785,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select user, file_ios from sys.user_summary order by file_ios desc LIMIT 5'
+'select user, file_ios from sys.x\\$user_summary order by file_ios desc LIMIT 5'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top user per io latency
@@ -3525,14 +3800,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select user, file_io_latency from sys.user_summary order by file_io_latency desc LIMIT 5'
+'select user, file_io_latency from sys.x\\$user_summary order by file_io_latency desc LIMIT 5'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top host per connection
@@ -3540,14 +3815,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select host, total_connections from sys.host_summary order by total_connections desc LIMIT 5'
+'select host, total_connections from sys.x\\$host_summary order by total_connections desc LIMIT 5'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery conn(s)";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top host per statement
@@ -3555,14 +3830,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select host, statements from sys.host_summary order by statements desc LIMIT 5'
+'select host, statements from sys.x\\$host_summary order by statements desc LIMIT 5'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery stmt(s)";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top host per statement latency
@@ -3570,14 +3845,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select host, statement_avg_latency from sys.host_summary order by statement_avg_latency desc LIMIT 5'
+'select host, statement_avg_latency from sys.x\\$host_summary order by statement_avg_latency desc LIMIT 5'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top host per lock latency
@@ -3585,14 +3860,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select host, lock_latency from sys.host_summary_by_statement_latency order by lock_latency desc LIMIT 5'
+'select host, lock_latency from sys.x\\$host_summary_by_statement_latency order by lock_latency desc LIMIT 5'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top host per full scans
@@ -3600,14 +3875,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select host, full_scans from sys.host_summary_by_statement_latency order by full_scans desc LIMIT 5'
+'select host, full_scans from sys.x\\$host_summary_by_statement_latency order by full_scans desc LIMIT 5'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top host per rows sent
@@ -3615,14 +3890,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select host, rows_sent from sys.host_summary_by_statement_latency order by rows_sent desc LIMIT 5'
+'select host, rows_sent from sys.x\\$host_summary_by_statement_latency order by rows_sent desc LIMIT 5'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top host per rows modified
@@ -3630,14 +3905,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select host, rows_affected from sys.host_summary_by_statement_latency order by rows_affected desc LIMIT 5'
+'select host, rows_affected from sys.x\\$host_summary_by_statement_latency order by rows_affected desc LIMIT 5'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top host per io
@@ -3645,14 +3920,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select host, file_ios from sys.host_summary order by file_ios desc LIMIT 5'
+'select host, file_ios from sys.x\\$host_summary order by file_ios desc LIMIT 5'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top 5 host per io latency
@@ -3660,14 +3935,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select host, file_io_latency from sys.host_summary order by file_io_latency desc LIMIT 5'
+'select host, file_io_latency from sys.x\\$host_summary order by file_io_latency desc LIMIT 5'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top IO type order by total io
@@ -3675,14 +3950,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select substring(event_name,14), SUM(total)AS total from sys.host_summary_by_file_io_type GROUP BY substring(event_name,14) ORDER BY total DESC;'
+'use sys;select substring(event_name,14), SUM(total)AS total from sys.x\\$host_summary_by_file_io_type GROUP BY substring(event_name,14) ORDER BY total DESC;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery i/o";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top IO type order by total latency
@@ -3690,14 +3965,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select substring(event_name,14), format_time(ROUND(SUM(total_latency),1)) AS total_latency from sys.host_summary_by_file_io_type GROUP BY substring(event_name,14) ORDER BY total_latency DESC;'
+'select substring(event_name,14), ROUND(SUM(total_latency),1) AS total_latency from sys.x\\$host_summary_by_file_io_type GROUP BY substring(event_name,14) ORDER BY total_latency DESC;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top IO type order by max latency
@@ -3705,14 +3980,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select substring(event_name,14), MAX(max_latency) as max_latency from sys.host_summary_by_file_io_type GROUP BY substring(event_name,14) ORDER BY max_latency DESC;'
+'use sys;select substring(event_name,14), MAX(max_latency) as max_latency from sys.x\\$host_summary_by_file_io_type GROUP BY substring(event_name,14) ORDER BY max_latency DESC;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top Stages order by total io
@@ -3720,14 +3995,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select substring(event_name,7), SUM(total)AS total from sys.host_summary_by_stages GROUP BY substring(event_name,7) ORDER BY total DESC;'
+'use sys;select substring(event_name,7), SUM(total)AS total from sys.x\\$host_summary_by_stages GROUP BY substring(event_name,7) ORDER BY total DESC;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery i/o";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top Stages order by total latency
@@ -3735,14 +4010,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select substring(event_name,7), format_time(ROUND(SUM(total_latency),1)) AS total_latency from sys.host_summary_by_stages GROUP BY substring(event_name,7) ORDER BY total_latency DESC;'
+'use sys;select substring(event_name,7), ROUND(SUM(total_latency),1) AS total_latency from sys.x\\$host_summary_by_stages GROUP BY substring(event_name,7) ORDER BY total_latency DESC;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top Stages order by avg latency
@@ -3750,14 +4025,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select substring(event_name,7), MAX(avg_latency) as avg_latency from sys.host_summary_by_stages GROUP BY substring(event_name,7) ORDER BY avg_latency DESC;'
+'use sys;select substring(event_name,7), MAX(avg_latency) as avg_latency from sys.x\\$host_summary_by_stages GROUP BY substring(event_name,7) ORDER BY avg_latency DESC;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top host per table scans
@@ -3765,14 +4040,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select host, table_scans from sys.host_summary order by table_scans desc LIMIT 5'
+'select host, table_scans from sys.x\\$host_summary order by table_scans desc LIMIT 5'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # InnoDB Buffer Pool by schema
@@ -3780,44 +4055,44 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select object_schema, allocated, data, pages from sys.innodb_buffer_stats_by_schema ORDER BY pages DESC'
+'select object_schema, allocated, data, pages from sys.x\\$innodb_buffer_stats_by_schema ORDER BY pages DESC'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery page(s)";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # InnoDB Buffer Pool by table
-    subheaderprint "Performance schema: InnoDB Buffer Pool by table";
+    subheaderprint "Performance schema: 40 InnoDB Buffer Pool by table";
     $nbL = 1;
     for my $lQuery (
         select_array(
-"select CONCAT(object_schema,CONCAT('.', object_name)), allocated,data, pages from sys.innodb_buffer_stats_by_table ORDER BY pages DESC"
+'select object_schema,  object_name, allocated,data, pages from sys.x\\$innodb_buffer_stats_by_table ORDER BY pages DESC LIMIT 40'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery page(s)";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Process per allocated memory
-    subheaderprint "Performance schema: Process per allocated memory";
+    subheaderprint "Performance schema: Process per time";
     $nbL = 1;
     for my $lQuery (
         select_array(
-"select concat(user,concat('/', IFNULL(Command,'NONE'))) AS PROC, current_memory from sys.processlist ORDER BY current_memory DESC;"
+'select user, Command AS PROC, time from sys.x\\$processlist ORDER BY time DESC;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # InnoDB Lock Waits
@@ -3825,14 +4100,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-"use sys;select wait_age_secs, locked_table, locked_type, waiting_query from innodb_lock_waits order by wait_age_secs DESC;"
+'select wait_age_secs, locked_table, locked_type, waiting_query from sys.x\\$innodb_lock_waits order by wait_age_secs DESC;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Threads IO Latency
@@ -3840,159 +4115,164 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-"use sys;select user, total_latency, max_latency from io_by_thread_by_latency order by total_latency;"
+'select user, total_latency, max_latency from sys.x\\$io_by_thread_by_latency order by total_latency DESC;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # High Cost SQL statements
-    subheaderprint "Performance schema: Top 5 Most latency statements";
+    subheaderprint "Performance schema: Top 15 Most latency statements";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select query, avg_latency from sys.statement_analysis order by avg_latency desc LIMIT 5'
+'select LEFT(query, 120), avg_latency from sys.x\\$statement_analysis order by avg_latency desc LIMIT 15'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top 5% slower queries
-    subheaderprint "Performance schema: Top 5 slower queries";
+    subheaderprint "Performance schema: Top 15 slower queries";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select query, exec_count from sys.statements_with_runtimes_in_95th_percentile order by exec_count desc LIMIT 5'
+'select LEFT(query, 120), exec_count from sys.x\\$statements_with_runtimes_in_95th_percentile order by exec_count desc LIMIT 15'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery s";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top 10 nb statement type
-    subheaderprint "Performance schema: Top 10 nb statement type";
+    subheaderprint "Performance schema: Top 15 nb statement type";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select statement, sum(total) as total from host_summary_by_statement_type group by statement order by total desc LIMIT 10;'
+'use sys;select statement, sum(total) as total from sys.x\\$host_summary_by_statement_type group by statement order by total desc LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top statement by total latency
-    subheaderprint "Performance schema: Top statement by total latency";
+    subheaderprint "Performance schema: Top 15 statement by total latency";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select statement, sum(total_latency) as total from sys.host_summary_by_statement_type group by statement order by total desc LIMIT 10;'
+'use sys;select statement, sum(total_latency) as total from sys.x\\$host_summary_by_statement_type group by statement order by total desc LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top statement by lock latency
-    subheaderprint "Performance schema: Top statement by lock latency";
+    subheaderprint "Performance schema: Top 15 statement by lock latency";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select statement, sum(lock_latency) as total from sys.host_summary_by_statement_type group by statement order by total desc LIMIT 10;'
+'use sys;select statement, sum(lock_latency) as total from sys.x\\$host_summary_by_statement_type group by statement order by total desc LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top statement by full scans
-    subheaderprint "Performance schema: Top statement by full scans";
+    subheaderprint "Performance schema: Top 15 statement by full scans";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select statement, sum(full_scans) as total from sys.host_summary_by_statement_type group by statement order by total desc LIMIT 10;'
+'use sys;select statement, sum(full_scans) as total from sys.x\\$host_summary_by_statement_type group by statement order by total desc LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top statement by rows sent
-    subheaderprint "Performance schema: Top statement by rows sent";
+    subheaderprint "Performance schema: Top 15 statement by rows sent";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select statement, sum(rows_sent) as total from sys.host_summary_by_statement_type group by statement order by total desc LIMIT 10;'
+'use sys;select statement, sum(rows_sent) as total from sys.x\\$host_summary_by_statement_type group by statement order by total desc LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Top statement by rows modified
-    subheaderprint "Performance schema: Top statement by rows modified";
+    subheaderprint "Performance schema: Top 15 statement by rows modified";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select statement, sum(rows_affected) as total from sys.host_summary_by_statement_type group by statement order by total desc LIMIT 10;'
+'use sys;select statement, sum(rows_affected) as total from sys.x\\$host_summary_by_statement_type group by statement order by total desc LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Use temporary tables
-    subheaderprint "Performance schema: Some queries using temp table";
+    subheaderprint "Performance schema: 15 sample queries using temp table";
     $nbL = 1;
     for my $lQuery (
         select_array(
-            'use sys;select query from sys.statements_with_temp_tables LIMIT 20'
+'use sys;select left(query, 120) from sys.x\\$statements_with_temp_tables LIMIT 15'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Unused Indexes
     subheaderprint "Performance schema: Unused indexes";
     $nbL = 1;
-    for my $lQuery ( select_array('select * from sys.schema_unused_indexes') ) {
+    for my $lQuery (
+        select_array(
+"select \* from sys.schema_unused_indexes where object_schema not in ('performance_schema')"
+        )
+      )
+    {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Full table scans
@@ -4000,14 +4280,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select * from sys.schema_tables_with_full_table_scans order by rows_full_scanned DESC'
+'select * from sys.x\\$schema_tables_with_full_table_scans order by rows_full_scanned DESC'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Latest file IO by latency
@@ -4015,14 +4295,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select thread, file, latency, operation from latest_file_io ORDER BY latency LIMIT 10;'
+'use sys;select thread, file, latency, operation from sys.x\\$latest_file_io ORDER BY latency LIMIT 10;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # FILE by IO read bytes
@@ -4030,14 +4310,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-"use sys;(select file, total_read from io_global_by_file_by_bytes where total_read like '%MiB' order by total_read DESC) UNION (select file, total_read from io_global_by_file_by_bytes where total_read like '%KiB' order by total_read DESC LIMIT 15);"
+'select file, total_read from sys.x\\$io_global_by_file_by_bytes order by total_read DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # FILE by IO written bytes
@@ -4045,14 +4325,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-"use sys;(select file, total_written from io_global_by_file_by_bytes where total_written like '%MiB' order by total_written DESC) UNION (select file, total_written from io_global_by_file_by_bytes where total_written like '%KiB' order by total_written DESC LIMIT 15);"
+'select file, total_written from sys.x\\$io_global_by_file_by_bytes order by total_written DESC LIMIT 15'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # file per IO total latency
@@ -4060,14 +4340,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select file, total_latency from io_global_by_file_by_latency ORDER BY total_latency DESC LIMIT 20;'
+'select file, total_latency from sys.x\\$io_global_by_file_by_latency ORDER BY total_latency DESC LIMIT 20;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # file per IO read latency
@@ -4075,14 +4355,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select file, read_latency from io_global_by_file_by_latency ORDER BY read_latency DESC LIMIT 20;'
+'use sys;select file, read_latency from sys.x\\$io_global_by_file_by_latency ORDER BY read_latency DESC LIMIT 20;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # file per IO write latency
@@ -4090,14 +4370,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select file, write_latency from io_global_by_file_by_latency ORDER BY write_latency DESC LIMIT 20;'
+'use sys;select file, write_latency from sys.x\\$io_global_by_file_by_latency ORDER BY write_latency DESC LIMIT 20;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Event Wait by read bytes
@@ -4105,14 +4385,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-"use sys;(select event_name, total_read from io_global_by_wait_by_bytes where total_read like '%MiB' order by total_read DESC) UNION (select event_name, total_read from io_global_by_wait_by_bytes where total_read like '%KiB' order by total_read DESC LIMIT 15);"
+'select event_name, total_read from sys.x\\$io_global_by_wait_by_bytes order by total_read DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Event Wait by write bytes
@@ -4120,14 +4400,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-"use sys;(select event_name, total_written from io_global_by_wait_by_bytes where total_written like '%MiB' order by total_written DESC) UNION (select event_name, total_written from io_global_by_wait_by_bytes where total_written like '%KiB' order by total_written DESC LIMIT 15);"
+'select event_name, total_written from sys.x\\$io_global_by_wait_by_bytes order by total_written DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # event per wait total latency
@@ -4135,14 +4415,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select event_name, total_latency from io_global_by_wait_by_latency ORDER BY total_latency DESC LIMIT 20;'
+'use sys;select event_name, total_latency from sys.x\\$io_global_by_wait_by_latency ORDER BY total_latency DESC LIMIT 20;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # event per wait read latency
@@ -4150,14 +4430,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select event_name, read_latency from io_global_by_wait_by_latency ORDER BY read_latency DESC LIMIT 20;'
+'use sys;select event_name, read_latency from sys.x\\$io_global_by_wait_by_latency ORDER BY read_latency DESC LIMIT 20;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # event per wait write latency
@@ -4165,14 +4445,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select event_name, write_latency from io_global_by_wait_by_latency ORDER BY write_latency DESC LIMIT 20;'
+'use sys;select event_name, write_latency from sys.x\\$io_global_by_wait_by_latency ORDER BY write_latency DESC LIMIT 20;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     #schema_index_statistics
@@ -4181,14 +4461,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select table_schema, table_name,index_name, rows_selected from schema_index_statistics ORDER BY ROWs_selected DESC LIMIT 15;'
+'use sys;select table_schema, table_name,index_name, rows_selected from sys.x\\$schema_index_statistics ORDER BY ROWs_selected DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # TOP 15 most used index
@@ -4196,14 +4476,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select table_schema, table_name,index_name, rows_inserted+rows_updated+rows_deleted AS changes from schema_index_statistics ORDER BY rows_inserted+rows_updated+rows_deleted DESC LIMIT 15;'
+'use sys;select table_schema, table_name,index_name, rows_inserted+rows_updated+rows_deleted AS changes from sys.x\\$schema_index_statistics ORDER BY rows_inserted+rows_updated+rows_deleted DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # TOP 15 high read latency index
@@ -4211,14 +4491,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select table_schema, table_name,index_name, select_latency from schema_index_statistics ORDER BY select_latency DESC LIMIT 15;'
+'use sys;select table_schema, table_name,index_name, select_latency from sys.x\\$schema_index_statistics ORDER BY select_latency DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # TOP 15 high insert latency index
@@ -4226,14 +4506,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select table_schema, table_name,index_name, insert_latency from schema_index_statistics ORDER BY insert_latency DESC LIMIT 15;'
+'use sys;select table_schema, table_name,index_name, insert_latency from sys.x\\$schema_index_statistics ORDER BY insert_latency DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # TOP 15 high update latency index
@@ -4241,14 +4521,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select table_schema, table_name,index_name, update_latency from schema_index_statistics ORDER BY update_latency DESC LIMIT 15;'
+'use sys;select table_schema, table_name,index_name, update_latency from sys.x\\$schema_index_statistics ORDER BY update_latency DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # TOP 15 high delete latency index
@@ -4256,14 +4536,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select table_schema, table_name,index_name, delete_latency from schema_index_statistics ORDER BY delete_latency DESC LIMIT 15;'
+'use sys;select table_schema, table_name,index_name, delete_latency from sys.x\\$schema_index_statistics ORDER BY delete_latency DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # TOP 15 most read tables
@@ -4271,14 +4551,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select table_schema, table_name, rows_fetched from schema_table_statistics ORDER BY ROWs_fetched DESC LIMIT 15;'
+'use sys;select table_schema, table_name, rows_fetched from sys.x\\$schema_table_statistics ORDER BY ROWs_fetched DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # TOP 15 most used tables
@@ -4286,14 +4566,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select table_schema, table_name, rows_inserted+rows_updated+rows_deleted AS changes from schema_table_statistics ORDER BY rows_inserted+rows_updated+rows_deleted DESC LIMIT 15;'
+'use sys;select table_schema, table_name, rows_inserted+rows_updated+rows_deleted AS changes from sys.x\\$schema_table_statistics ORDER BY rows_inserted+rows_updated+rows_deleted DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # TOP 15 high read latency tables
@@ -4301,14 +4581,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select table_schema, table_name, fetch_latency from schema_table_statistics ORDER BY fetch_latency DESC LIMIT 15;'
+'use sys;select table_schema, table_name, fetch_latency from sys.x\\$schema_table_statistics ORDER BY fetch_latency DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # TOP 15 high insert latency tables
@@ -4316,14 +4596,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select table_schema, table_name, insert_latency from schema_table_statistics ORDER BY insert_latency DESC LIMIT 15;'
+'use sys;select table_schema, table_name, insert_latency from sys.x\\$schema_table_statistics ORDER BY insert_latency DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # TOP 15 high update latency tables
@@ -4331,14 +4611,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select table_schema, table_name, update_latency from schema_table_statistics ORDER BY update_latency DESC LIMIT 15;'
+'use sys;select table_schema, table_name, update_latency from sys.x\\$schema_table_statistics ORDER BY update_latency DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # TOP 15 high delete latency tables
@@ -4346,14 +4626,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select table_schema, table_name, delete_latency from schema_table_statistics ORDER BY delete_latency DESC LIMIT 15;'
+'use sys;select table_schema, table_name, delete_latency from sys.x\\$schema_table_statistics ORDER BY delete_latency DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     # Redundant indexes
@@ -4365,90 +4645,63 @@ sub mysqsl_pfs {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
-      if ( $nbL == 1 );
-
-    subheaderprint "Performance schema: Tables not using InnoDB buffer";
-    $nbL = 1;
-    for my $lQuery (
-        select_array(
-' Select table_schema, table_name from sys.schema_table_statistics_with_buffer where innodb_buffer_allocated IS NULL;'
-        )
-      )
-    {
-        infoprint " +-- $nbL: $lQuery";
-        $nbL++;
-    }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint "Performance schema: Table not using InnoDB buffer";
     $nbL = 1;
     for my $lQuery (
         select_array(
-' Select table_schema, table_name from sys.schema_table_statistics_with_buffer where innodb_buffer_allocated IS NULL;'
+' Select table_schema, table_name from sys.x\\$schema_table_statistics_with_buffer where innodb_buffer_allocated IS NULL;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
-      if ( $nbL == 1 );
-    subheaderprint "Performance schema: Table not using InnoDB buffer";
-    $nbL = 1;
-    for my $lQuery (
-        select_array(
-' Select table_schema, table_name from sys.schema_table_statistics_with_buffer where innodb_buffer_allocated IS NULL;'
-        )
-      )
-    {
-        infoprint " +-- $nbL: $lQuery";
-        $nbL++;
-    }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint "Performance schema: Top 15 Tables using InnoDB buffer";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select table_schema,table_name,innodb_buffer_allocated from sys.schema_table_statistics_with_buffer where innodb_buffer_allocated IS NOT NULL ORDER BY innodb_buffer_allocated DESC LIMIT 15;'
+'select table_schema,table_name,innodb_buffer_allocated from sys.x\\$schema_table_statistics_with_buffer where innodb_buffer_allocated IS NOT NULL ORDER BY innodb_buffer_allocated DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint "Performance schema: Top 15 Tables with InnoDB buffer free";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select table_schema,table_name,innodb_buffer_free from sys.schema_table_statistics_with_buffer where innodb_buffer_allocated IS NOT NULL ORDER BY innodb_buffer_free DESC LIMIT 15;'
+'select table_schema,table_name,innodb_buffer_free from sys.x\\$schema_table_statistics_with_buffer where innodb_buffer_allocated IS NOT NULL ORDER BY innodb_buffer_free DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint "Performance schema: Top 15 Most executed queries";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select db, query, exec_count from sys.statement_analysis order by exec_count DESC LIMIT 15;'
+'select db, LEFT(query, 120), exec_count from sys.x\\$statement_analysis order by exec_count DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint
@@ -4456,56 +4709,56 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select query, last_seen from sys.statements_with_errors_or_warnings ORDER BY last_seen LIMIT 100;'
+'select LEFT(query, 120), last_seen from sys.x\\$statements_with_errors_or_warnings ORDER BY last_seen LIMIT 40;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint "Performance schema: Top 20 queries with full table scans";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select db, query, exec_count from sys.statements_with_full_table_scans order BY exec_count DESC LIMIT 20;'
+'select db, LEFT(query, 120), exec_count from sys.x\\$statements_with_full_table_scans order BY exec_count DESC LIMIT 20;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint "Performance schema: Last 50 queries with full table scans";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select db, query, last_seen from sys.statements_with_full_table_scans order BY last_seen DESC LIMIT 50;'
+'select db, LEFT(query, 120), last_seen from sys.x\\$statements_with_full_table_scans order BY last_seen DESC LIMIT 50;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint "Performance schema: TOP 15 reader queries (95% percentile)";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select db, query , rows_sent from statements_with_runtimes_in_95th_percentile ORDER BY ROWs_sent DESC LIMIT 15;'
+'use sys;select db, LEFT(query, 120), rows_sent from sys.x\\$statements_with_runtimes_in_95th_percentile ORDER BY ROWs_sent DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint
@@ -4513,14 +4766,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select db, query, rows_examined AS search from statements_with_runtimes_in_95th_percentile ORDER BY rows_examined DESC LIMIT 15;'
+'use sys;select db, LEFT(query, 120), rows_examined AS search from sys.x\\$statements_with_runtimes_in_95th_percentile ORDER BY rows_examined DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint
@@ -4528,14 +4781,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select db, query, total_latency AS search from statements_with_runtimes_in_95th_percentile ORDER BY total_latency DESC LIMIT 15;'
+'use sys;select db, LEFT(query, 120), total_latency AS search from sys.x\\$statements_with_runtimes_in_95th_percentile ORDER BY total_latency DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint
@@ -4543,14 +4796,14 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select db, query, max_latency AS search from statements_with_runtimes_in_95th_percentile ORDER BY max_latency DESC LIMIT 15;'
+'use sys;select db, LEFT(query, 120), max_latency AS search from sys.x\\$statements_with_runtimes_in_95th_percentile ORDER BY max_latency DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint
@@ -4558,84 +4811,84 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select db, query, avg_latency AS search from statements_with_runtimes_in_95th_percentile ORDER BY avg_latency DESC LIMIT 15;'
+'use sys;select db, LEFT(query, 120), avg_latency AS search from sys.x\\$statements_with_runtimes_in_95th_percentile ORDER BY avg_latency DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint "Performance schema: Top 20 queries with sort";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select db, query, exec_count from sys.statements_with_sorting order BY exec_count DESC LIMIT 20;'
+'select db, LEFT(query, 120), exec_count from sys.x\\$statements_with_sorting order BY exec_count DESC LIMIT 20;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint "Performance schema: Last 50 queries with sort";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select db, query, last_seen from sys.statements_with_sorting order BY last_seen DESC LIMIT 50;'
+'select db, LEFT(query, 120), last_seen from sys.x\\$statements_with_sorting order BY last_seen DESC LIMIT 50;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint "Performance schema: TOP 15 row sorting queries with sort";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select db, query , rows_sorted from statements_with_sorting ORDER BY ROWs_sorted DESC LIMIT 15;'
+'use sys;select db, LEFT(query, 120), rows_sorted from sys.x\\$statements_with_sorting ORDER BY ROWs_sorted DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint "Performance schema: TOP 15 total latency queries with sort";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select db, query, total_latency AS search from statements_with_sorting ORDER BY total_latency DESC LIMIT 15;'
+'use sys;select db, LEFT(query, 120), total_latency AS search from sys.x\\$statements_with_sorting ORDER BY total_latency DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint "Performance schema: TOP 15 merge queries with sort";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select db, query, sort_merge_passes AS search from statements_with_sorting ORDER BY sort_merge_passes DESC LIMIT 15;'
+'use sys;select db, LEFT(query, 120), sort_merge_passes AS search from sys.x\\$statements_with_sorting ORDER BY sort_merge_passes DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint
@@ -4643,42 +4896,42 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select db, query, avg_sort_merges AS search from statements_with_sorting ORDER BY avg_sort_merges DESC LIMIT 15;'
+'select db, LEFT(query, 120), avg_sort_merges AS search from sys.x\\$statements_with_sorting ORDER BY avg_sort_merges DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint "Performance schema: TOP 15 scans queries with sort";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select db, query, sorts_using_scans AS search from statements_with_sorting ORDER BY sorts_using_scans DESC LIMIT 15;'
+'use sys;select db, LEFT(query, 120), sorts_using_scans AS search from sys.x\\$statements_with_sorting ORDER BY sorts_using_scans DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint "Performance schema: TOP 15 range queries with sort";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select db, query, sort_using_range AS search from statements_with_sorting ORDER BY sort_using_range DESC LIMIT 15;'
+'use sys;select db, LEFT(query, 120), sort_using_range AS search from sys.x\\$statements_with_sorting ORDER BY sort_using_range DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
 ##################################################################################
@@ -4707,28 +4960,28 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select db, query, exec_count from sys.statements_with_temp_tables order BY exec_count DESC LIMIT 20;'
+'select db, LEFT(query, 120), exec_count from sys.x\\$statements_with_temp_tables order BY exec_count DESC LIMIT 20;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint "Performance schema: Last 50 queries with temp table";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'select db, query, last_seen from sys.statements_with_temp_tables order BY last_seen DESC LIMIT 50;'
+'select db, LEFT(query, 120), last_seen from sys.x\\$statements_with_temp_tables order BY last_seen DESC LIMIT 50;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint
@@ -4736,28 +4989,28 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select db, query, total_latency AS search from statements_with_temp_tables ORDER BY total_latency DESC LIMIT 15;'
+'select db, LEFT(query, 120), total_latency AS search from sys.x\\$statements_with_temp_tables ORDER BY total_latency DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint "Performance schema: TOP 15 queries with temp table to disk";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select db, query, disk_tmp_tables from statements_with_temp_tables ORDER BY disk_tmp_tables DESC LIMIT 15;'
+'use sys;select db, LEFT(query, 120), disk_tmp_tables from sys.x\\$statements_with_temp_tables ORDER BY disk_tmp_tables DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
 ##################################################################################
@@ -4777,113 +5030,107 @@ sub mysqsl_pfs {
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select event_class, total from wait_classes_global_by_latency ORDER BY total DESC LIMIT 15;'
+'use sys;select event_class, total from sys.x\\$wait_classes_global_by_latency ORDER BY total DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint "Performance schema: TOP 30 events by number";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select events, total from waits_global_by_latency ORDER BY total DESC LIMIT 30;'
+'use sys;select events, total from sys.x\\$waits_global_by_latency ORDER BY total DESC LIMIT 30;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint "Performance schema: TOP 15 class events by total latency";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select event_class, total_latency from wait_classes_global_by_latency ORDER BY total_latency DESC LIMIT 15;'
+'use sys;select event_class, total_latency from sys.x\\$wait_classes_global_by_latency ORDER BY total_latency DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint "Performance schema: TOP 30 events by total latency";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select events, total_latency from waits_global_by_latency ORDER BY total_latency DESC LIMIT 30;'
+'use sys;select events, total_latency from sys.x\\$waits_global_by_latency ORDER BY total_latency DESC LIMIT 30;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint "Performance schema: TOP 15 class events by max latency";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select event_class, max_latency from wait_classes_global_by_latency ORDER BY max_latency DESC LIMIT 15;'
+'select event_class, max_latency from sys.x\\$wait_classes_global_by_latency ORDER BY max_latency DESC LIMIT 15;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
     subheaderprint "Performance schema: TOP 30 events by max latency";
     $nbL = 1;
     for my $lQuery (
         select_array(
-'use sys;select events, max_latency from waits_global_by_latency ORDER BY max_latency DESC LIMIT 30;'
+'select events, max_latency from sys.x\\$waits_global_by_latency ORDER BY max_latency DESC LIMIT 30;'
         )
       )
     {
         infoprint " +-- $nbL: $lQuery";
         $nbL++;
     }
-    infoprint "No information found or indicators desactivated."
+    infoprint "No information found or indicators deactivated."
       if ( $nbL == 1 );
 
 }
 
-# Recommendations for Ariadb
-sub mariadb_ariadb {
-    subheaderprint "AriaDB Metrics";
+# Recommendations for Aria Engine
+sub mariadb_aria {
+    subheaderprint "Aria Metrics";
 
-    # AriaDB
-    unless ( defined $myvar{'have_aria'}
-        and $myvar{'have_aria'} eq "YES" )
-    {
-        infoprint "AriaDB is disabled.";
+    # Aria
+    if ( !defined $myvar{'have_aria'} ) {
+        infoprint "Aria Storage Engine not available.";
         return;
     }
-    infoprint "AriaDB is enabled.";
+    if ( $myvar{'have_aria'} ne "YES" ) {
+        infoprint "Aria Storage Engine is disabled.";
+        return;
+    }
+    infoprint "Aria Storage Engine is enabled.";
 
     # Aria pagecache
-    if ( !defined( $mycalc{'total_aria_indexes'} ) and $doremote == 1 ) {
+    if ( !defined( $mycalc{'total_aria_indexes'} ) ) {
         push( @generalrec,
-            "Unable to calculate Aria indexes on remote MySQL server < 5.0.0" );
-    }
-    elsif ( $mycalc{'total_aria_indexes'} =~ /^fail$/ ) {
-        badprint
-          "Cannot calculate Aria index size - re-run script as root user";
-    }
-    elsif ( $mycalc{'total_aria_indexes'} == "0" ) {
-        badprint
-          "None of your Aria tables are indexed - add indexes immediately";
+            "Unable to calculate Aria index size on MySQL server" );
     }
     else {
         if (
@@ -4974,7 +5221,7 @@ sub mariadb_rockdb {
     }
     infoprint "RocksDB is enabled.";
 
-    # All is to done here
+    # All is to do here
 }
 
 # Recommendations for Spider
@@ -4990,7 +5237,7 @@ sub mariadb_spider {
     }
     infoprint "Spider is enabled.";
 
-    # All is to done here
+    # All is to do here
 }
 
 # Recommendations for Connect
@@ -5004,14 +5251,15 @@ sub mariadb_connect {
         infoprint "Connect is disabled.";
         return;
     }
-    infoprint "TokuDB is enabled.";
+    infoprint "Connect is enabled.";
 
-    # All is to done here
+    # All is to do here
 }
 
 # Perl trim function to remove whitespace from the start and end of the string
 sub trim {
     my $string = shift;
+    return "" unless defined($string);
     $string =~ s/^\s+//;
     $string =~ s/\s+$//;
     return $string;
@@ -5067,7 +5315,10 @@ sub mariadb_galera {
         debugprint "\t" . trim($gvar) . " = " . $myvar{$gvar};
         $result{'Galera'}{'variables'}{$gvar} = $myvar{$gvar};
     }
-
+    if ( not defined( $myvar{'wsrep_on'} ) or $myvar{'wsrep_on'} ne "ON" ) {
+        infoprint "Galera is disabled.";
+        return;
+    }
     debugprint "Galera wsrep provider Options:";
     my @galera_options = get_wsrep_options;
     $result{'Galera'}{'wsrep options'} = get_wsrep_options();
@@ -5082,6 +5333,8 @@ sub mariadb_galera {
     }
     infoprint "GCache is using "
       . hr_bytes_rnd( get_wsrep_option('gcache.mem_size') );
+
+    #my @primaryKeysNbTables=();
     my @primaryKeysNbTables = select_array(
         "Select CONCAT(c.table_schema,CONCAT('.', c.table_name))
 from information_schema.columns c
@@ -5092,26 +5345,19 @@ group by c.table_schema,c.table_name
 having sum(if(c.column_key in ('PRI','UNI'), 1,0)) = 0"
     );
 
-    if (   get_wsrep_option('wsrep_slave_threads') > (cpu_cores) * 4
-        or get_wsrep_option('wsrep_slave_threads') < (cpu_cores) * 3 )
+    infoprint "CPU core detected  : " . (cpu_cores);
+    infoprint "wsrep_slave_threads: " . get_wsrep_option('wsrep_slave_threads');
+
+    if (   get_wsrep_option('wsrep_slave_threads') > ( (cpu_cores) * 4 )
+        or get_wsrep_option('wsrep_slave_threads') < ( (cpu_cores) * 2 ) )
     {
         badprint
 "wsrep_slave_threads is not equal to 2, 3 or 4 times number of CPU(s)";
-        push @adjvars, "wsrep_slave_threads= Nb of Core CPU * 4";
+        push @adjvars, "wsrep_slave_threads = " . ( (cpu_cores) * 4 );
     }
     else {
         goodprint
           "wsrep_slave_threads is equal to 2, 3 or 4 times number of CPU(s)";
-    }
-
-    if ( get_wsrep_option('gcs.fc_limit') !=
-        get_wsrep_option('wsrep_slave_threads') * 5 )
-    {
-        badprint "gcs.fc_limit should be equal to 5 * wsrep_slave_threads";
-        push @adjvars, "gcs.fc_limit= wsrep_slave_threads * 5";
-    }
-    else {
-        goodprint "gcs.fc_limit should be equal to 5 * wsrep_slave_threads";
     }
 
     if ( get_wsrep_option('wsrep_slave_threads') > 1 ) {
@@ -5138,15 +5384,15 @@ having sum(if(c.column_key in ('PRI','UNI'), 1,0)) = 0"
 
     if ( get_wsrep_option('gcs.fc_limit') != $myvar{'wsrep_slave_threads'} * 5 )
     {
-        badprint "gcs.fc_limit should be equal to 5 * wsrep_slave_threads";
-        push @adjvars, "gcs.fc_limit= wsrep_slave_threads * 5";
+        badprint "gcs.fc_limit should be equal to 5 * wsrep_slave_threads (=".($myvar{'wsrep_slave_threads'} * 5). ")";
+        push @adjvars, "gcs.fc_limit= wsrep_slave_threads * 5 (=".($myvar{'wsrep_slave_threads'} * 5). ")";
     }
     else {
-        goodprint "gcs.fc_limit is equal to 5 * wsrep_slave_threads";
+        goodprint "gcs.fc_limit is equal to 5 * wsrep_slave_threads ( =".get_wsrep_option('gcs.fc_limit') .")";
     }
 
     if ( get_wsrep_option('gcs.fc_factor') != 0.8 ) {
-        badprint "gcs.fc_factor should be equal to 0.8";
+        badprint "gcs.fc_factor should be equal to 0.8 (=".get_wsrep_option('gcs.fc_factor').")";
         push @adjvars, "gcs.fc_factor=0.8";
     }
     else {
@@ -5266,7 +5512,9 @@ having sum(if(c.column_key in ('PRI','UNI'), 1,0)) = 0"
             badprint "Galera Notify command is not defined.";
             push( @adjvars, "set up parameter wsrep_notify_cmd to be notify" );
         }
-        if ( trim( $myvar{'wsrep_sst_method'} ) !~ "^xtrabackup.*" ) {
+        if (    trim( $myvar{'wsrep_sst_method'} ) !~ "^xtrabackup.*"
+            and trim( $myvar{'wsrep_sst_method'} ) !~ "^mariabackup" )
+        {
             badprint "Galera SST method is not xtrabackup based.";
             push( @adjvars,
 "set up parameter wsrep_sst_method to xtrabackup based parameter"
@@ -5362,17 +5610,31 @@ sub mysql_innodb {
 
     # InnoDB
     unless ( defined $myvar{'have_innodb'}
-        && $myvar{'have_innodb'} eq "YES"
-        && defined $enginestats{'InnoDB'} )
+        && $myvar{'have_innodb'} eq "YES" )
     {
         infoprint "InnoDB is disabled.";
         if ( mysql_version_ge( 5, 5 ) ) {
+            my $defengine = 'InnoDB';
+            $defengine = $myvar{'default_storage_engine'}
+              if defined( $myvar{'default_storage_engine'} );
             badprint
-"InnoDB Storage engine is disabled. InnoDB is the default storage engine";
+"InnoDB Storage engine is disabled. $defengine is the default storage engine"
+              if $defengine eq 'InnoDB';
+            infoprint
+"InnoDB Storage engine is disabled. $defengine is the default storage engine"
+              if $defengine ne 'InnoDB';
         }
         return;
     }
     infoprint "InnoDB is enabled.";
+    if ( !defined $enginestats{'InnoDB'} ) {
+        if ( $opt{skipsize} eq 1 ) {
+            infoprint "Skipped due to --skipsize option";
+            return;
+        }
+        badprint "No tables are Innodb";
+        $enginestats{'InnoDB'} = 0;
+    }
 
     if ( $opt{buffers} ne 0 ) {
         infoprint "InnoDB Buffers";
@@ -5448,7 +5710,7 @@ sub mysql_innodb {
           . hr_bytes( $enginestats{'InnoDB'} ) . "";
         push( @adjvars,
                 "innodb_buffer_pool_size (>= "
-              . hr_bytes_rnd( $enginestats{'InnoDB'} )
+              . hr_bytes( $enginestats{'InnoDB'} )
               . ") if possible." );
     }
     if (   $mycalc{'innodb_log_size_pct'} < 20
@@ -5459,7 +5721,7 @@ sub mysql_innodb {
           . hr_bytes( $myvar{'innodb_log_file_size'} ) . " * "
           . $myvar{'innodb_log_files_in_group'} . "/"
           . hr_bytes( $myvar{'innodb_buffer_pool_size'} )
-          . " should be equal 25%";
+          . " should be equal to 25%";
         push(
             @adjvars,
             "innodb_log_file_size should be (="
@@ -5469,8 +5731,13 @@ sub mysql_innodb {
               )
               . ") if possible, so InnoDB total log files size equals to 25% of buffer pool size."
         );
+        if ( mysql_version_le( 5, 6, 2 ) ) {
+            push( @generalrec,
+"For MySQL 5.6.2 and lower, Max combined innodb_log_file_size should have a ceiling of (4096MB / log files in group) - 1MB."
+            );
+        }
         push( @generalrec,
-"Read this before changing innodb_log_file_size and/or innodb_log_files_in_group: http://bit.ly/2wgkDvS"
+"Before changing innodb_log_file_size and/or innodb_log_files_in_group read this: https://bit.ly/2TcGgtU"
         );
     }
     else {
@@ -5478,11 +5745,13 @@ sub mysql_innodb {
           . hr_bytes( $myvar{'innodb_log_file_size'} ) . " * "
           . $myvar{'innodb_log_files_in_group'} . "/"
           . hr_bytes( $myvar{'innodb_buffer_pool_size'} )
-          . " should be equal 25%";
+          . " should be equal to 25%";
     }
 
     # InnoDB Buffer Pool Instances (MySQL 5.6.6+)
-    if ( defined( $myvar{'innodb_buffer_pool_instances'} ) ) {
+    if ( not mysql_version_ge( 10, 5 )
+        and defined( $myvar{'innodb_buffer_pool_instances'} ) )
+    {
 
         # Bad Value if > 64
         if ( $myvar{'innodb_buffer_pool_instances'} > 64 ) {
@@ -5565,7 +5834,7 @@ sub mysql_innodb {
         }
     }
 
-    # InnoDB Read efficency
+    # InnoDB Read efficiency
     if ( defined $mycalc{'pct_read_efficiency'}
         && $mycalc{'pct_read_efficiency'} < 90 )
     {
@@ -5639,6 +5908,24 @@ sub mysql_innodb {
     $result{'Calculations'} = {%mycalc};
 }
 
+sub check_metadata_perf {
+    subheaderprint "Analysis Performance Metrics";
+    if ( defined $myvar{'innodb_stats_on_metadata'} ) {
+        infoprint "innodb_stats_on_metadata: "
+          . $myvar{'innodb_stats_on_metadata'};
+        if ( $myvar{'innodb_stats_on_metadata'} eq 'ON' ) {
+            badprint "Stat are updated during querying INFORMATION_SCHEMA.";
+            push @adjvars, "SET innodb_stats_on_metadata = OFF";
+
+            #Disabling innodb_stats_on_metadata
+            select_one("SET GLOBAL innodb_stats_on_metadata = OFF;");
+            return 1;
+        }
+    }
+    goodprint "No stat updates during querying INFORMATION_SCHEMA.";
+    return 0;
+}
+
 # Recommendations for Database metrics
 sub mysql_databases {
     return if ( $opt{dbstat} == 0 );
@@ -5650,8 +5937,8 @@ sub mysql_databases {
         return;
     }
 
-    my @dblist = select_array(
-"SELECT DISTINCT TABLE_SCHEMA FROM information_schema.TABLES WHERE TABLE_SCHEMA NOT IN ( 'mysql', 'performance_schema', 'information_schema', 'sys' );"
+    @dblist = select_array(
+"SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME NOT IN ( 'mysql', 'performance_schema', 'information_schema', 'sys' );"
     );
     infoprint "There is " . scalar(@dblist) . " Database(s).";
     my @totaldbinfo = split /\s/,
@@ -5817,7 +6104,7 @@ sub mysql_databases {
 
 # Recommendations for database columns
 sub mysql_tables {
-    return if ( $opt{dbstat} == 0 );
+    return if ( $opt{tbstat} == 0 );
 
     subheaderprint "Table Column Metrics";
     unless ( mysql_version_ge( 5, 5 ) ) {
@@ -5825,9 +6112,10 @@ sub mysql_tables {
 "Skip Database metrics from information schema missing in this version";
         return;
     }
-    my @dblist = select_array(
-"SELECT DISTINCT TABLE_SCHEMA FROM information_schema.TABLES WHERE TABLE_SCHEMA NOT IN ( 'mysql', 'performance_schema', 'information_schema', 'sys' );"
-    );
+    if ( mysql_version_ge(8) and not mysql_version_eq(10) ) {
+        infoprint
+"MySQL and Percona version 8 and greater have remove PROCEDURE ANALYSE feature";
+    }
     foreach (@dblist) {
         my $dbname = $_;
         next unless defined $_;
@@ -5848,21 +6136,38 @@ sub mysql_tables {
                 my $isnull = select_one(
 "SELECT IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='$dbname' AND TABLE_NAME='$tbname' AND COLUMN_NAME='$_' "
                 );
+
                 infoprint "     +-- Column $tbname.$_:";
                 my $current_type =
                   uc($ctype) . ( $isnull eq 'NO' ? " NOT NULL" : "" );
-                my $optimal_type = select_str_g( "Optimal_fieldtype",
-                    "SELECT $_ FROM $dbname.$tbname PROCEDURE ANALYSE(100000)"
-                );
+                my $optimal_type = '';
 
-                if ( $current_type ne $optimal_type ) {
+                if ($opt{colstat} == 1) {
+                $optimal_type = select_str_g( "Optimal_fieldtype",
+"SELECT \\`$_\\` FROM \\`$dbname\\`.\\`$tbname\\` PROCEDURE ANALYSE(100000)"
+                ) unless ( mysql_version_ge(8) and not mysql_version_eq(10) );
+                }
+                if ( $optimal_type eq '' ) {
                     infoprint "      Current Fieldtype: $current_type";
-                    infoprint "      Optimal Fieldtype: $optimal_type";
-                    badprint
+
+                    #infoprint "      Optimal Fieldtype: Not available";
+                }
+                elsif ( $current_type ne $optimal_type
+                    and $current_type !~ /.*DATETIME.*/
+                    and $current_type !~ /.*TIMESTAMP.*/ )
+                {
+                    infoprint "      Current Fieldtype: $current_type";
+                    if ( $optimal_type =~ /.*ENUM\(.*/ ) {
+                        $optimal_type = "ENUM( ... )";
+                    }
+                    infoprint "      Optimal Fieldtype: $optimal_type ";
+                    if ( $optimal_type !~ /.*ENUM\(.*/ ) {
+                        badprint
 "Consider changing type for column $_ in table $dbname.$tbname";
-                    push( @generalrec,
-                        "ALTER TABLE $dbname.$tbname MODIFY $_ $optimal_type;"
-                    );
+                        push( @generalrec,
+"ALTER TABLE \`$dbname\`.\`$tbname\` MODIFY \`$_\` $optimal_type;"
+                        );
+                    }
 
                 }
                 else {
@@ -5962,7 +6267,7 @@ FROM performance_schema.table_io_waits_summary_by_index_usage
 WHERE index_name IS NOT NULL
 AND count_star =0
 AND index_name <> 'PRIMARY'
-AND object_schema != 'mysql'
+AND object_schema NOT IN ( 'mysql', 'performance_schema', 'information_schema' )
 ORDER BY count_star, object_schema, object_name;
 ENDSQL
     @idxinfo = select_array($selIdxReq);
@@ -6007,7 +6312,7 @@ sub close_outputfile {
 sub headerprint {
     prettyprint
       " >>  MySQLTuner $tunerversion - Major Hayden <major\@mhtx.net>\n"
-      . " >>  Bug reports, feature requests, and downloads at http://mysqltuner.com/\n"
+      . " >>  Bug reports, feature requests, and downloads at http://mysqltuner.pl/\n"
       . " >>  Run with '--help' for additional options and output filtering";
 }
 
@@ -6042,7 +6347,6 @@ if ( $opt{'template'} ne 0 ) {
     $templateModel = file2string( $opt{'template'} );
 }
 else {
-
     # DEFAULT REPORT TEMPLATE
     $templateModel = <<'END_TEMPLATE';
 <!DOCTYPE html>
@@ -6064,45 +6368,61 @@ END_TEMPLATE
 }
 
 sub dump_result {
-    if ( $opt{'debug'} ) {
-        debugprint Dumper( \%result );
-    }
-
+    debugprint Dumper( \%result ) if ( $opt{'debug'} );
     debugprint "HTML REPORT: $opt{'reportfile'}";
 
     if ( $opt{'reportfile'} ne 0 ) {
         eval { require Text::Template };
+        eval { require JSON };
         if ($@) {
             badprint "Text::Template Module is needed.";
-            exit 1;
+            die "Text::Template Module is needed.";
         }
 
-        my $vars = { 'data' => Dumper( \%result ) };
-
+        my $json      = JSON->new->allow_nonref;
+        my $json_text = $json->pretty->encode( \%result );
+        my %vars      = (
+            'data'  => \%result,
+            'debug' => $json_text,
+        );
         my $template;
         {
             no warnings 'once';
             $template = Text::Template->new(
-                TYPE    => 'STRING',
-                PREPEND => q{;},
-                SOURCE  => $templateModel
+                TYPE       => 'STRING',
+                PREPEND    => q{;},
+                SOURCE     => $templateModel,
+                DELIMITERS => [ '[%', '%]' ]
             ) or die "Couldn't construct template: $Text::Template::ERROR";
         }
+
         open my $fh, q(>), $opt{'reportfile'}
           or die
 "Unable to open $opt{'reportfile'} in write mode. please check permissions for this file or directory";
-        $template->fill_in( HASH => $vars, OUTPUT => $fh );
+        $template->fill_in( HASH => \%vars, OUTPUT => $fh );
         close $fh;
     }
+
     if ( $opt{'json'} ne 0 ) {
         eval { require JSON };
         if ($@) {
             print "$bad JSON Module is needed.\n";
-            exit 1;
+            return 1;
         }
+
         my $json = JSON->new->allow_nonref;
         print $json->utf8(1)->pretty( ( $opt{'prettyjson'} ? 1 : 0 ) )
           ->encode( \%result );
+
+        if ( $opt{'outputfile'} ne 0 ) {
+            unlink $opt{'outputfile'} if ( -e $opt{'outputfile'} );
+            open my $fh, q(>), $opt{'outputfile'}
+              or die
+"Unable to open $opt{'outputfile'} in write mode. please check permissions for this file or directory";
+            print $fh $json->utf8(1)->pretty( ( $opt{'prettyjson'} ? 1 : 0 ) )
+              ->encode( \%result );
+            close $fh;
+        }
     }
 }
 
@@ -6112,9 +6432,7 @@ sub which {
     my @path_array  = split /:/, $ENV{'PATH'};
 
     for my $path (@path_array) {
-        if ( -x "$path/$prog_name" ) {
-            return "$path/$prog_name";
-        }
+        return "$path/$prog_name" if ( -x "$path/$prog_name" );
     }
 
     return 0;
@@ -6127,6 +6445,10 @@ headerprint;    # Header Print
 
 validate_tuner_version;    # Check last version
 mysql_setup;               # Gotta login first
+debugprint "MySQL FINAL Client : $mysqlcmd $mysqllogin";
+debugprint "MySQL Admin FINAL Client : $mysqladmincmd $mysqllogin";
+
+#exit(0);
 os_setup;                  # Set up some OS variables
 get_all_vars;              # Toss variables/status into hashes
 get_tuning_info;           # Get information about the tuning connexion
@@ -6134,26 +6456,29 @@ validate_mysql_version;    # Check current MySQL version
 
 check_architecture;        # Suggest 64-bit upgrade
 system_recommendations;    # avoid to many service on the same host
-log_file_recommandations;  # check log file content
+log_file_recommendations;  # check log file content
 check_storage_engines;     # Show enabled storage engines
-mysql_databases;           # Show informations about databases
-mysql_tables;              # Show informations about table column
 
-mysql_indexes;             # Show informations about indexes
-security_recommendations;  # Display some security recommendations
-cve_recommendations;       # Display related CVE
-calculations;              # Calculate everything we need
-mysql_stats;               # Print the server stats
-mysqsl_pfs;                # Print Performance schema info
-mariadb_threadpool;        # Print MaraiDB ThreadPool stats
-mysql_myisam;              # Print MyISAM stats
-mysql_innodb;              # Print InnoDB stats
-mariadb_ariadb;            # Print MaraiDB AriaDB stats
-mariadb_tokudb;            # Print MariaDB Tokudb stats
-mariadb_xtradb;            # Print MariaDB XtraDB stats
-mariadb_rockdb;            # Print MariaDB RockDB stats
-mariadb_spider;            # Print MariaDB Spider stats
-mariadb_connect;           # Print MariaDB Connect stats
+check_metadata_perf;    # Show parameter impacting performance during analysis
+mysql_databases;        # Show informations about databases
+mysql_tables;           # Show informations about table column
+
+mysql_indexes;               # Show informations about indexes
+security_recommendations;    # Display some security recommendations
+cve_recommendations;         # Display related CVE
+calculations;                # Calculate everything we need
+mysql_stats;                 # Print the server stats
+mysqsl_pfs;                  # Print Performance schema info
+mariadb_threadpool;          # Print MariaDB ThreadPool stats
+mysql_myisam;                # Print MyISAM stats
+mysql_innodb;                # Print InnoDB stats
+mariadb_aria;                # Print MariaDB Aria stats
+mariadb_tokudb;              # Print MariaDB Tokudb stats
+mariadb_xtradb;              # Print MariaDB XtraDB stats
+
+#mariadb_rockdb;             # Print MariaDB RockDB stats
+#mariadb_spider;             # Print MariaDB Spider stats
+#mariadb_connect;            # Print MariaDB Connect stats
 mariadb_galera;            # Print MariaDB Galera Cluster stats
 get_replication_status;    # Print replication info
 make_recommendations;      # Make recommendations based on stats
@@ -6173,7 +6498,7 @@ __END__
 
 =head1 NAME
 
- MySQLTuner 1.7.5 - MySQL High Performance Tuning Script
+ MySQLTuner 1.7.25 - MySQL High Performance Tuning Script
 
 =head1 IMPORTANT USAGE GUIDELINES
 
@@ -6182,7 +6507,7 @@ Allow MySQL server to run for at least 24-48 hours before trusting suggestions
 Some routines may require root level privileges (script will provide warnings)
 You must provide the remote server's total memory when connecting to other servers
 
-=head1 CONNECTION AND AUTHENTIFICATION
+=head1 CONNECTION AND AUTHENTICATION
 
  --host <hostname>           Connect to a remote host to perform tests (default: localhost)
  --socket <socket>           Use a different socket for a local connection
@@ -6195,6 +6520,7 @@ You must provide the remote server's total memory when connecting to other serve
  --mysqladmin <path>         Path to a custom mysqladmin executable
  --mysqlcmd <path>           Path to a custom mysql executable
  --defaults-file <path>      Path to a custom .my.cnf
+ --server-log <path>         Path to explict log file
 
 =head1 PERFORMANCE AND REPORTING OPTIONS
 
@@ -6214,10 +6540,20 @@ You must provide the remote server's total memory when connecting to other serve
  --nobad                     Remove negative/suggestion responses
  --noinfo                    Remove informational responses
  --debug                     Print debug information
+ --noprocess                Consider no other process is running
  --dbstat                    Print database information
+ --nodbstat                  Don't Print database information
+ --tbstat                    Print table information
+ --notbstat                  Don't Print table information
+ --colstat                   Print column information
+ --nocolstat                  Don't Print column information
  --idxstat                   Print index information
+ --noidxstat                 Don't Print index information
  --sysstat                   Print system information
+ --nosysstat                 Don't Print system information
  --pfstat                    Print Performance schema
+ --nopfstat                  Don't Print Performance schema
+ --verbose                   Prints out all options (default: no verbose, dbstat, idxstat, sysstat, tbstat, pfstat)
  --bannedports               Ports banned separated by comma(,)
  --maxportallowed            Number of ports opened allowed on this hosts
  --cvefile <path>            CVE File for vulnerability checks
@@ -6227,7 +6563,7 @@ You must provide the remote server's total memory when connecting to other serve
  --outputfile <path>         Path to a output txt file
  --reportfile <path>         Path to a report txt file
  --template   <path>         Path to a template file
- --verbose                   Prints out all options (default: no verbose)
+
 
 =head1 PERLDOC
 
@@ -6390,7 +6726,7 @@ Christian Loos
 =head1 SUPPORT
 
 
-Bug reports, feature requests, and downloads at http://mysqltuner.com/
+Bug reports, feature requests, and downloads at http://mysqltuner.pl/
 
 Bug tracker can be found at https://github.com/major/MySQLTuner-perl/issues
 
@@ -6404,11 +6740,11 @@ L<https://github.com/major/MySQLTuner-perl>
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2006-2017 Major Hayden - major@mhtx.net
+Copyright (C) 2006-2021 Major Hayden - major@mhtx.net
 
-For the latest updates, please visit http://mysqltuner.com/
+For the latest updates, please visit http://mysqltuner.pl/
 
-Git repository available at http://github.com/major/MySQLTuner-perl
+Git repository available at https://github.com/major/MySQLTuner-perl
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -6422,7 +6758,7 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
  See the GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 =cut
 

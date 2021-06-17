@@ -1,6 +1,6 @@
 # NAME
 
-    MySQLTuner 1.7.5 - MySQL High Performance Tuning Script
+    MySQLTuner 1.7.21 - MySQL High Performance Tuning Script
 
 # IMPORTANT USAGE GUIDELINES
 
@@ -9,7 +9,7 @@ Allow MySQL server to run for at least 24-48 hours before trusting suggestions
 Some routines may require root level privileges (script will provide warnings)
 You must provide the remote server's total memory when connecting to other servers
 
-# CONNECTION AND AUTHENTIFICATION
+# CONNECTION AND AUTHENTICATION
 
     --host <hostname>           Connect to a remote host to perform tests (default: localhost)
     --socket <socket>           Use a different socket for a local connection
@@ -22,6 +22,7 @@ You must provide the remote server's total memory when connecting to other serve
     --mysqladmin <path>         Path to a custom mysqladmin executable
     --mysqlcmd <path>           Path to a custom mysql executable
     --defaults-file <path>      Path to a custom .my.cnf
+    --server-log <path>         Path to explict log file
 
 # PERFORMANCE AND REPORTING OPTIONS
 
@@ -41,10 +42,18 @@ You must provide the remote server's total memory when connecting to other serve
     --nobad                     Remove negative/suggestion responses
     --noinfo                    Remove informational responses
     --debug                     Print debug information
+    --noprocess                Consider no other process is running
     --dbstat                    Print database information
+    --nodbstat                  Don't Print database information
+    --tbstat                    Print table information
+    --notbstat                  Don't Print table information
     --idxstat                   Print index information
+    --noidxstat                 Don't Print index information
     --sysstat                   Print system information
+    --nosysstat                 Don't Print system information
     --pfstat                    Print Performance schema
+    --nopfstat                  Don't Print Performance schema
+    --verbose                   Prints out all options (default: no verbose, dbstat, idxstat, sysstat, tbstat, pfstat)
     --bannedports               Ports banned separated by comma(,)
     --maxportallowed            Number of ports opened allowed on this hosts
     --cvefile <path>            CVE File for vulnerability checks
@@ -54,7 +63,6 @@ You must provide the remote server's total memory when connecting to other serve
     --outputfile <path>         Path to a output txt file
     --reportfile <path>         Path to a report txt file
     --template   <path>         Path to a template file
-    --verbose                   Prints out all options (default: no verbose)
 
 # PERLDOC
 
@@ -111,7 +119,7 @@ Major Hayden - major@mhtx.net
 
 # SUPPORT
 
-Bug reports, feature requests, and downloads at http://mysqltuner.com/
+Bug reports, feature requests, and downloads at http://mysqltuner.pl/
 
 Bug tracker can be found at https://github.com/major/MySQLTuner-perl/issues
 
@@ -125,11 +133,11 @@ Maintained by Major Hayden (major\\@mhtx.net) - Licensed under GPL
 
 # COPYRIGHT AND LICENSE
 
-Copyright (C) 2006-2017 Major Hayden - major@mhtx.net
+Copyright (C) 2006-2020 Major Hayden - major@mhtx.net
 
-For the latest updates, please visit http://mysqltuner.com/
+For the latest updates, please visit http://mysqltuner.pl/
 
-Git repository available at http://github.com/major/MySQLTuner-perl
+Git repository available at https://github.com/major/MySQLTuner-perl
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -143,4 +151,4 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
     See the GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
-along with this program.  If not, see &lt;http://www.gnu.org/licenses/>.
+along with this program.  If not, see &lt;https://www.gnu.org/licenses/>.

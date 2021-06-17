@@ -5,7 +5,7 @@ use WWW::Mechanize::GZip;
 use File::Util;
 use Data::Dumper;
 use List::MoreUtils qw(uniq);
-my $verbose;
+my $verbose=1;
 sub AUTOLOAD {
     use vars qw($AUTOLOAD);
     my $cmd = $AUTOLOAD;
@@ -52,7 +52,7 @@ my $temp;
 unlink '../vulnerabilities.csv' if -f '../vulnerabilities.csv';
 open(CVE, 'cve.csv') or die("Could not open  file.");
 foreach my $line (<CVE>) {
-	if ($line =~ /(mysql|mariadb)/i 
+	if ($line =~ /(mysql|mariadb|percona)/i 
             and $line =~ /server/i
             and $line =~ /CANDIDATE/i 
             and $line !~ /MaxDB/i
